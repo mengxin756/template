@@ -124,8 +124,8 @@ func TestUserService_Register(t *testing.T) {
 			mockRepo := new(MockUserRepository)
 			log := logger.New("test", "debug", true)
 
-			// 创建服务实例
-			service := NewUserService(mockRepo, log)
+			// 创建服务实例（传入 nil 作为任务队列，避免测试中的复杂性）
+			service := NewUserService(mockRepo, nil, log)
 
 			// 设置模拟行为
 			tt.setup(mockRepo)
@@ -155,7 +155,7 @@ func TestUserService_Register(t *testing.T) {
 func TestUserService_GetByID(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	log := logger.New("test", "debug", true)
-	service := NewUserService(mockRepo, log)
+	service := NewUserService(mockRepo, nil, log)
 
 	// 模拟用户数据
 	mockUser := &domain.User{
@@ -186,7 +186,7 @@ func TestUserService_GetByID(t *testing.T) {
 func TestUserService_Update(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	log := logger.New("test", "debug", true)
-	service := NewUserService(mockRepo, log)
+	service := NewUserService(mockRepo, nil, log)
 
 	// 模拟现有用户
 	existingUser := &domain.User{

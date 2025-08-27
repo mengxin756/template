@@ -11,8 +11,10 @@ import (
 
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data/ent"
+	"example.com/classic/internal/data/redis"
 	"example.com/classic/internal/data/store/entstore"
 	"example.com/classic/internal/handler"
+	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
 	httpserver "example.com/classic/internal/server/http"
 	"example.com/classic/internal/service"
@@ -39,11 +41,24 @@ func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.L
 	// 提供 Ent 客户端
 	entClient := provideEntClient(store)
 
+	// 创建 Redis 客户端
+	redisClient, err := redis.New(cfg, log)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	_ = redisClient // 暂未使用
+
+	// 创建任务队列
+	taskQueue, err := asynq.New(cfg, log)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	// 创建用户仓储
 	userRepo := repository.NewUserRepository(entClient, log)
 
-	// 创建用户服务
-	userService := service.NewUserService(userRepo, log)
+	// 创建用户服务（传入任务队列）
+	userService := service.NewUserService(userRepo, taskQueue, log)
 
 	// 创建用户处理器
 	userHandler := handler.NewUserHandler(userService, log)

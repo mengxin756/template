@@ -10,10 +10,13 @@ import (
 
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data/ent"
+	"example.com/classic/internal/data/redis"
 	"example.com/classic/internal/data/store/entstore"
 	"example.com/classic/internal/handler"
+	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
 	"example.com/classic/internal/server/http"
+	httpserver "example.com/classic/internal/server/http"
 	"example.com/classic/internal/service"
 	"example.com/classic/pkg/logger"
 )
@@ -28,6 +31,8 @@ func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.L
 		// 数据层
 		entstore.New,
 		provideEntClient,
+		redis.New,
+		asynq.New,
 
 		// 仓储层
 		repository.NewUserRepository,
@@ -39,7 +44,7 @@ func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.L
 		handler.NewUserHandler,
 
 		// HTTP 服务器
-		httpserver.NewServer,
+		http.NewServer,
 		provideHTTPServer,
 	)
 	return nil, nil, nil, nil

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"example.com/classic/internal/domain"
+	"example.com/classic/internal/job/asynq"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -14,27 +15,29 @@ import (
 
 // userService 用户服务实现
 type userService struct {
-	userRepo domain.UserRepository
-	log      logger.Logger
+	userRepo  domain.UserRepository
+	taskQueue *asynq.Queue
+	log       logger.Logger
 }
 
 // NewUserService 创建用户服务实例
-func NewUserService(userRepo domain.UserRepository, log logger.Logger) domain.UserService {
+func NewUserService(userRepo domain.UserRepository, taskQueue *asynq.Queue, log logger.Logger) domain.UserService {
 	return &userService{
-		userRepo: userRepo,
-		log:      log,
+		userRepo:  userRepo,
+		taskQueue: taskQueue,
+		log:       log,
 	}
 }
 
 // Register 用户注册
 func (s *userService) Register(ctx context.Context, req *domain.CreateUserRequest) (*domain.User, error) {
 	s.log.Info(ctx, "user registration started", logger.F("email", req.Email))
-	
+
 	// 验证请求参数
 	if err := s.validateCreateRequest(req); err != nil {
 		return nil, err
 	}
-	
+
 	// 检查邮箱是否已存在
 	exists, err := s.userRepo.ExistsByEmail(ctx, req.Email)
 	if err != nil {
@@ -43,28 +46,43 @@ func (s *userService) Register(ctx context.Context, req *domain.CreateUserReques
 	if exists {
 		return nil, errors.ErrUserAlreadyExists
 	}
-	
+
 	// 加密密码
 	hashedPassword, err := s.hashPassword(req.Password)
 	if err != nil {
 		s.log.Error(ctx, "password hashing failed", logger.F("error", err))
 		return nil, errors.WrapInternalError(err, "password hashing failed")
 	}
-	
+
 	// 创建用户
 	user := &domain.User{
-		Name:     req.Name,
-		Email:    req.Email,
-		Password: hashedPassword,
-		Status:   domain.StatusActive,
+		Name:      req.Name,
+		Email:     req.Email,
+		Password:  hashedPassword,
+		Status:    domain.StatusActive,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, err
 	}
-	
+
+	// 发送欢迎邮件任务
+	if s.taskQueue != nil {
+		task := asynq.NewWelcomeEmailTask(user.ID, user.Email, user.Name)
+		if err := s.taskQueue.Enqueue(task); err != nil {
+			s.log.Warn(ctx, "failed to enqueue welcome email task",
+				logger.F("error", err),
+				logger.F("user_id", user.ID))
+			// 不阻塞主流程，只记录警告
+		} else {
+			s.log.Debug(ctx, "welcome email task enqueued",
+				logger.F("user_id", user.ID),
+				logger.F("email", user.Email))
+		}
+	}
+
 	s.log.Info(ctx, "user registration completed", logger.F("user_id", user.ID), logger.F("email", user.Email))
 	return user, nil
 }
@@ -72,12 +90,12 @@ func (s *userService) Register(ctx context.Context, req *domain.CreateUserReques
 // GetByID 根据ID获取用户
 func (s *userService) GetByID(ctx context.Context, id int) (*domain.User, error) {
 	s.log.Debug(ctx, "getting user by id", logger.F("user_id", id))
-	
+
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 清除敏感信息
 	user.Password = ""
 	return user, nil
@@ -86,13 +104,13 @@ func (s *userService) GetByID(ctx context.Context, id int) (*domain.User, error)
 // Update 更新用户
 func (s *userService) Update(ctx context.Context, id int, req *domain.UpdateUserRequest) (*domain.User, error) {
 	s.log.Info(ctx, "updating user", logger.F("user_id", id))
-	
+
 	// 获取现有用户
 	existingUser, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 应用更新
 	if req.Name != nil {
 		existingUser.Name = *req.Name
@@ -106,17 +124,17 @@ func (s *userService) Update(ctx context.Context, id int, req *domain.UpdateUser
 		}
 		existingUser.Status = *req.Status
 	}
-	
+
 	existingUser.UpdatedAt = time.Now()
-	
+
 	// 保存更新
 	if err := s.userRepo.Update(ctx, existingUser); err != nil {
 		return nil, err
 	}
-	
+
 	// 清除敏感信息
 	existingUser.Password = ""
-	
+
 	s.log.Info(ctx, "user updated successfully", logger.F("user_id", id))
 	return existingUser, nil
 }
@@ -124,18 +142,18 @@ func (s *userService) Update(ctx context.Context, id int, req *domain.UpdateUser
 // Delete 删除用户
 func (s *userService) Delete(ctx context.Context, id int) error {
 	s.log.Info(ctx, "deleting user", logger.F("user_id", id))
-	
+
 	// 检查用户是否存在
 	_, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	
+
 	// 执行删除
 	if err := s.userRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	
+
 	s.log.Info(ctx, "user deleted successfully", logger.F("user_id", id))
 	return nil
 }
@@ -143,51 +161,76 @@ func (s *userService) Delete(ctx context.Context, id int) error {
 // List 查询用户列表
 func (s *userService) List(ctx context.Context, query *domain.UserQuery) ([]*domain.User, int64, error) {
 	s.log.Debug(ctx, "listing users", logger.F("query", query))
-	
+
 	// 验证查询参数
 	if err := s.validateQuery(query); err != nil {
 		return nil, 0, err
 	}
-	
+
 	// 查询用户列表
 	users, total, err := s.userRepo.List(ctx, query)
 	if err != nil {
 		return nil, 0, err
 	}
-	
+
 	// 清除敏感信息
 	for _, user := range users {
 		user.Password = ""
 	}
-	
+
 	s.log.Debug(ctx, "users listed successfully", logger.F("total", total), logger.F("count", len(users)))
 	return users, total, nil
 }
 
 // ChangeStatus 改变用户状态
 func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.Status) error {
-	s.log.Info(ctx, "changing user status", logger.F("user_id", id), logger.F("status", status))
-	
+	s.log.Info(ctx, "changing user status", logger.F("user_id", id))
+
 	// 验证状态
 	if !status.IsValid() {
 		return errors.New(errors.ErrCodeInvalidParam, "invalid status")
 	}
-	
+
 	// 获取用户
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	
+
+	oldStatus := user.Status
+
 	// 更新状态
 	user.Status = status
 	user.UpdatedAt = time.Now()
-	
+
 	// 保存更新
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return err
 	}
-	
+
+	// 发送状态变更通知任务
+	if s.taskQueue != nil && oldStatus != status {
+		task := asynq.NewStatusChangeNotificationTask(
+			user.ID,
+			user.Email,
+			user.Name,
+			string(oldStatus),
+			string(status),
+			"system", // 这里可以从上下文获取操作者信息
+		)
+		if err := s.taskQueue.Enqueue(task); err != nil {
+			s.log.Warn(ctx, "failed to enqueue status change notification task",
+				logger.F("error", err),
+				logger.F("user_id", user.ID))
+			// 不阻塞主流程，只记录警告
+		} else {
+			s.log.Debug(ctx, "status change notification task enqueued",
+				logger.F("user_id", user.ID),
+				logger.F("old_status", oldStatus),
+				logger.F("new_status", status))
+		}
+	}
+
 	s.log.Info(ctx, "user status changed successfully", logger.F("user_id", id), logger.F("status", status))
 	return nil
 }
@@ -200,21 +243,21 @@ func (s *userService) validateCreateRequest(req *domain.CreateUserRequest) error
 	if len(req.Name) < 2 || len(req.Name) > 50 {
 		return errors.New(errors.ErrCodeInvalidParam, "name length must be between 2 and 50")
 	}
-	
+
 	if req.Email == "" {
 		return errors.New(errors.ErrCodeInvalidParam, "email is required")
 	}
 	if !s.isValidEmail(req.Email) {
 		return errors.New(errors.ErrCodeInvalidParam, "invalid email format")
 	}
-	
+
 	if req.Password == "" {
 		return errors.New(errors.ErrCodeInvalidParam, "password is required")
 	}
 	if len(req.Password) < 6 || len(req.Password) > 100 {
 		return errors.New(errors.ErrCodeInvalidParam, "password length must be between 6 and 100")
 	}
-	
+
 	return nil
 }
 
@@ -242,13 +285,13 @@ func (s *userService) hashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	
+
 	// 使用 bcrypt 加密
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}
-	
+
 	return hex.EncodeToString(hashedBytes), nil
 }
 
@@ -258,6 +301,6 @@ func (s *userService) verifyPassword(hashedPassword, password string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return bcrypt.CompareHashAndPassword(hashedBytes, []byte(password))
 }
