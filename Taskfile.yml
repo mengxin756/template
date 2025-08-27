@@ -1,0 +1,12 @@
+version: '3'
+tasks:
+  gen:ent:
+    desc: Generate ent code
+    cmds:
+      - go run entgo.io/ent/cmd/ent generate ./internal/data/ent/schema
+  run:api:
+    desc: Run HTTP API
+    cmds:
+      - go run ./cmd/api
+
+

@@ -1,0 +1,12 @@
+http:
+  address: ":8080"
+log:
+  level: "info"
+  encoding: "json"
+  development: false
+db:
+  driver: "sqlite"
+  dsn: "file:ent?mode=memory&cache=shared&_fk=1"
+  auto_migrate: true
+
+
