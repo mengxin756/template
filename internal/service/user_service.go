@@ -71,15 +71,17 @@ func (s *userService) Register(ctx context.Context, req *domain.CreateUserReques
 	// 发送欢迎邮件任务
 	if s.taskQueue != nil {
 		task := asynq.NewWelcomeEmailTask(user.ID, user.Email, user.Name)
-		if err := s.taskQueue.Enqueue(task); err != nil {
+		const delaySeconds = 10
+		if err := s.taskQueue.EnqueueDelay(time.Duration(delaySeconds)*time.Second, task); err != nil {
 			s.log.Warn(ctx, "failed to enqueue welcome email task",
 				logger.F("error", err),
 				logger.F("user_id", user.ID))
 			// 不阻塞主流程，只记录警告
 		} else {
-			s.log.Debug(ctx, "welcome email task enqueued",
+			s.log.Debug(ctx, "welcome email task enqueued (delayed)",
 				logger.F("user_id", user.ID),
-				logger.F("email", user.Email))
+				logger.F("email", user.Email),
+				logger.F("delay_seconds", delaySeconds))
 		}
 	}
 
