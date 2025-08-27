@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"example.com/classic/internal/logger"
 	"example.com/classic/internal/wire"
+	"example.com/classic/pkg/logger"
 )
 
 func main() {
@@ -21,10 +21,14 @@ func main() {
 	}
 	defer func() { _ = log.Sync() }()
 
+	// 设置全局日志
+	logger.SetGlobalLogger(log)
+
+	// 启动 HTTP 服务器
 	go func() {
-		log.Info("http server starting", logger.Field("addr", cfg.HTTP.Address))
+		log.Info(context.Background(), "HTTP server starting", logger.F("addr", cfg.HTTP.Address))
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("http server error", logger.Err(err))
+			log.Error(context.Background(), "HTTP server error", logger.F("error", err))
 		}
 	}()
 
@@ -32,12 +36,14 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Info("shutting down...")
+	log.Info(context.Background(), "shutting down...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	
 	if err := server.Shutdown(ctx); err != nil {
-		log.Error("server shutdown error", logger.Err(err))
+		log.Error(context.Background(), "server shutdown error", logger.F("error", err))
 	}
-	log.Info("server exited")
+	
+	log.Info(context.Background(), "server exited")
 }

@@ -1,12 +1,81 @@
+# 应用配置
+environment: development
+service: classic-api
+version: 1.0.0
+
+# HTTP 服务配置
 http:
   address: ":8080"
+  read_timeout: 10s
+  write_timeout: 20s
+  idle_timeout: 60s
+  max_header_bytes: 1048576
+  enable_cors: true
+  enable_metrics: true
+  enable_health: true
+
+# 日志配置
 log:
-  level: "info"
-  encoding: "json"
-  development: false
+  level: debug
+  encoding: json
+  development: true
+  service: classic-api
+  output: stdout
+  max_size: 100
+  max_age: 30
+  max_backups: 10
+  compress: true
+
+# 数据库配置
 db:
-  driver: "sqlite"
+  driver: sqlite
   dsn: "file:ent?mode=memory&cache=shared&_fk=1"
+  host: localhost
+  port: 3306
+  username: ""
+  password: ""
+  database: classic
+  charset: utf8mb4
+  max_open: 100
+  max_idle: 10
+  max_lifetime: 1h
   auto_migrate: true
+  log_level: warn
+
+# Redis 配置
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  database: 0
+  pool_size: 10
+  min_idle_conns: 5
+  max_retries: 3
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+# Asynq 任务队列配置
+asynq:
+  redis_addr: localhost:6379
+  redis_password: ""
+  redis_db: 1
+  concurrency: 10
+  queues:
+    - default
+    - critical
+  strict_priority: false
+  shutdown_timeout: 30s
+
+# Kafka 配置
+kafka:
+  brokers:
+    - localhost:9092
+  group_id: classic-consumer
+  topic: classic-events
+  partitions: 3
+  replicas: 1
+  retention: 168h
+  max_message_bytes: 1048576
 
 

@@ -5,46 +5,59 @@ package wire
 import (
 	"context"
 	"net/http"
-	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 
-	appuser "example.com/classic/internal/app/user"
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data/ent"
 	"example.com/classic/internal/data/store/entstore"
-	"example.com/classic/internal/logger"
-	httpserver "example.com/classic/internal/server/http"
-	"example.com/classic/internal/server/http/router"
+	"example.com/classic/internal/handler"
+	"example.com/classic/internal/repository"
+	"example.com/classic/internal/server/http"
+	"example.com/classic/internal/service"
+	"example.com/classic/pkg/logger"
 )
 
 // InitHTTPServer 返回完整的 HTTP Server 和配置
-func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, *logger.Logger, error) {
+func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.Logger, error) {
 	wire.Build(
+		// 配置和日志
 		config.Load,
-		logger.New,
+		provideLogger,
+
+		// 数据层
 		entstore.New,
 		provideEntClient,
-		appuser.NewRepository,
-		appuser.NewService,
-		router.NewUserHandler,
-		httpserver.BuildEngine,
+
+		// 仓储层
+		repository.NewUserRepository,
+
+		// 服务层
+		service.NewUserService,
+
+		// 处理器层
+		handler.NewUserHandler,
+
+		// HTTP 服务器
+		httpserver.NewServer,
 		provideHTTPServer,
 	)
 	return nil, nil, nil, nil
 }
 
-func provideEntClient(store *entstore.Store) *ent.Client { return store.Client }
+// provideLogger 提供日志实例
+func provideLogger(cfg *config.Config) logger.Logger {
+	log := logger.New(cfg.Service, cfg.Log.Level, cfg.IsDevelopment())
+	logger.SetGlobalLogger(log)
+	return log
+}
 
-func provideHTTPServer(cfg *config.Config, engine *gin.Engine) *http.Server {
-	return &http.Server{
-		Addr:              cfg.HTTP.Address,
-		Handler:           engine,
-		ReadTimeout:       10 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      20 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
+// provideEntClient 提供 Ent 客户端
+func provideEntClient(store *entstore.Store) *ent.Client {
+	return store.Client
+}
+
+// provideHTTPServer 提供 HTTP 服务器
+func provideHTTPServer(server *httpserver.Server) *http.Server {
+	return server.GetHTTPServer()
 }
