@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hibiken/asynq"
 	"example.com/classic/internal/config"
 	"example.com/classic/pkg/logger"
+	"github.com/hibiken/asynq"
 )
 
 // Queue 任务队列
 type Queue struct {
-	client    *asynq.Client
-	server    *asynq.Server
-	config    *config.Config
-	log       logger.Logger
-	handlers  map[string]asynq.HandlerFunc
+	client   *asynq.Client
+	server   *asynq.Server
+	config   *config.Config
+	log      logger.Logger
+	handlers map[string]asynq.HandlerFunc
 }
 
 // New 创建任务队列
@@ -35,10 +35,10 @@ func New(cfg *config.Config, log logger.Logger) (*Queue, error) {
 	server := asynq.NewServer(
 		redisOpt,
 		asynq.Config{
-			Concurrency:        cfg.Asynq.Concurrency,
-			StrictPriority:     cfg.Asynq.StrictPriority,
-			ShutdownTimeout:    cfg.Asynq.ShutdownTimeout,
-			HealthCheckFunc:    func(error) {}, // 简单的健康检查
+			Concurrency:              cfg.Asynq.Concurrency,
+			StrictPriority:           cfg.Asynq.StrictPriority,
+			ShutdownTimeout:          cfg.Asynq.ShutdownTimeout,
+			HealthCheckFunc:          func(error) {}, // 简单的健康检查
 			DelayedTaskCheckInterval: time.Second,
 		},
 	)
@@ -59,13 +59,13 @@ func New(cfg *config.Config, log logger.Logger) (*Queue, error) {
 
 // Start 启动任务队列服务器
 func (q *Queue) Start() error {
-	q.log.Info(context.Background(), "starting Asynq server", 
+	q.log.Info(context.Background(), "starting Asynq server",
 		logger.F("concurrency", q.config.Asynq.Concurrency),
 		logger.F("redis_addr", q.config.Asynq.RedisAddr))
 
 	// 创建多路复用器
 	mux := asynq.NewServeMux()
-	
+
 	// 注册任务处理器
 	for taskType, handler := range q.handlers {
 		mux.HandleFunc(taskType, handler)
@@ -79,13 +79,13 @@ func (q *Queue) Start() error {
 // Stop 停止任务队列服务器
 func (q *Queue) Stop() error {
 	q.log.Info(context.Background(), "stopping Asynq server")
-	
+
 	// 优雅关闭客户端
 	q.client.Close()
-	
+
 	// 优雅关闭服务器
 	q.server.Shutdown()
-	
+
 	return nil
 }
 
@@ -93,13 +93,13 @@ func (q *Queue) Stop() error {
 func (q *Queue) Enqueue(task *asynq.Task, opts ...asynq.Option) error {
 	info, err := q.client.Enqueue(task, opts...)
 	if err != nil {
-		q.log.Error(context.Background(), "failed to enqueue task", 
+		q.log.Error(context.Background(), "failed to enqueue task",
 			logger.F("error", err),
 			logger.F("task_type", task.Type()))
 		return fmt.Errorf("failed to enqueue task: %w", err)
 	}
 
-	q.log.Debug(context.Background(), "task enqueued successfully", 
+	q.log.Debug(context.Background(), "task enqueued successfully",
 		logger.F("task_id", info.ID),
 		logger.F("task_type", task.Type()),
 		logger.F("queue", info.Queue))
@@ -127,17 +127,17 @@ func (q *Queue) GetServer() *asynq.Server {
 func (q *Queue) registerDefaultHandlers() {
 	// 用户注册欢迎邮件任务
 	q.handlers[TaskTypeWelcomeEmail] = q.handleWelcomeEmail
-	
+
 	// 用户状态变更通知任务
 	q.handlers[TaskTypeStatusChangeNotification] = q.handleStatusChangeNotification
-	
+
 	// 数据清理任务
 	q.handlers[TaskTypeDataCleanup] = q.handleDataCleanup
 }
 
 // handleWelcomeEmail 处理欢迎邮件任务
 func (q *Queue) handleWelcomeEmail(ctx context.Context, t *asynq.Task) error {
-	q.log.Info(ctx, "processing welcome email task", 
+	q.log.Info(ctx, "processing welcome email task",
 		logger.F("task_id", t.ResultWriter().TaskID()),
 		logger.F("payload", string(t.Payload())))
 
@@ -150,7 +150,7 @@ func (q *Queue) handleWelcomeEmail(ctx context.Context, t *asynq.Task) error {
 
 // handleStatusChangeNotification 处理状态变更通知任务
 func (q *Queue) handleStatusChangeNotification(ctx context.Context, t *asynq.Task) error {
-	q.log.Info(ctx, "processing status change notification task", 
+	q.log.Info(ctx, "processing status change notification task",
 		logger.F("task_id", t.ResultWriter().TaskID()),
 		logger.F("payload", string(t.Payload())))
 
@@ -163,7 +163,7 @@ func (q *Queue) handleStatusChangeNotification(ctx context.Context, t *asynq.Tas
 
 // handleDataCleanup 处理数据清理任务
 func (q *Queue) handleDataCleanup(ctx context.Context, t *asynq.Task) error {
-	q.log.Info(ctx, "processing data cleanup task", 
+	q.log.Info(ctx, "processing data cleanup task",
 		logger.F("task_id", t.ResultWriter().TaskID()),
 		logger.F("payload", string(t.Payload())))
 
