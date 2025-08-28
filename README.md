@@ -1,144 +1,145 @@
 # Classic Go Project
 
-一个基于 Clean Architecture 的经典 Go 项目，使用现代化的技术栈和最佳实践。
+A classic Go project based on Clean Architecture, utilizing a modern technology stack and best practices
 
-## 🏗️ 项目架构
+## 🏗️ Project Architecture
 
-### 目录结构
+### Directory Structure
 ```
 template/
-├── cmd/                    # 主程序入口
-│   └── api/              # API 服务入口
-├── internal/              # 核心业务逻辑（不可被外部依赖）
-│   ├── config/           # 配置管理
-│   ├── domain/           # 领域对象、实体、接口
-│   ├── service/          # 业务用例实现
-│   ├── repository/       # 数据访问层
-│   ├── handler/          # HTTP 处理器
-│   ├── data/             # 数据层
+├── cmd/                    # Main application entry points
+│   └── api/              # API service entry
+├── internal/              # Core business logic (cannot be imported externally)
+│   ├── config/           # Configuration management
+│   ├── domain/           # Domain objects, entities, interfaces
+│   ├── service/          # Business use case implementations
+│   ├── repository/       # Data access layer
+│   ├── handler/          # HTTP handlers
+│   ├── data/             # Data layer
 │   │   └── ent/         # Ent ORM
-│   └── server/           # 服务器配置
-├── pkg/                   # 公共工具库
-│   ├── errors/           # 统一错误处理
-│   ├── logger/           # 结构化日志
-│   └── response/         # HTTP 响应格式
-├── config/                # 配置文件
-├── api/                   # API 定义
-└── test/                  # 测试文件
+│   └── server/           # Server configuration
+├── pkg/                   # Public utility libraries
+│   ├── errors/           # Unified error handling
+│   ├── logger/           # Structured logging
+│   └── response/         # HTTP response formatting
+├── config/                # Configuration files
+├── api/                   # API definitions
+└── test/                  # Test files
 ```
 
-### 技术栈
-- **Web 框架**: Gin
+### Technology Stack
+- **Web Framework**: Gin
 - **ORM**: Ent
-- **依赖注入**: Google Wire
-- **日志**: Zerolog
-- **配置管理**: Viper
-- **数据库**: SQLite (支持 MySQL/PostgreSQL)
-- **任务队列**: Asynq (计划中)
-- **消息队列**: Kafka (计划中)
+- **Dependency Injection**: Google Wire
+- **Logging**: Zerolog
+- **Configuration Management**: Viper
+- **Database**: SQLite (supports MySQL/PostgreSQL)
+- **Task Queue**: Asynq (planned)
+- **Message Queue**: Kafka (planned)
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 环境要求
+### Prerequisites
 - Go 1.21+
-- SQLite (开发环境)
+- SQLite (for development)
 
-### 安装依赖
+
+### Install Dependencies
 ```bash
 go mod tidy
 ```
 
-### 运行项目
+### Run the Project
 ```bash
 go run ./cmd/api
 ```
 
-### 构建项目
+### Build the Project
 ```bash
 go build ./cmd/api
 ```
 
-## 📋 功能特性
+## 📋 Features
 
-### 用户管理
-- ✅ 用户注册
-- ✅ 用户查询
-- ✅ 用户更新
-- ✅ 用户删除
-- ✅ 用户状态管理
-- ✅ 分页查询
+### User Management
+- ✅ User registration
+- ✅ User query
+- ✅ User update
+- ✅ User deletion
+- ✅ User status management
+- ✅ Paginated queries
 
-### 技术特性
-- ✅ Clean Architecture 分层设计
-- ✅ 依赖注入 (Wire)
-- ✅ 结构化日志 (Zerolog)
-- ✅ 统一错误处理
-- ✅ 统一响应格式
-- ✅ 请求追踪 (Trace ID)
-- ✅ 中间件支持
-- ✅ 配置管理
-- ✅ 单元测试
+### Technical Features
+- ✅ Clean Architecture layered design
+- ✅ Dependency Injection (Wire)
+- ✅ Structured Logging (Zerolog)
+- ✅ Unified error handling
+- ✅ Unified response formatting
+- ✅ Request tracing (Trace ID)
+- ✅ Middleware support
+- ✅ Configuration management
+- ✅ Unit testing
 
-## 🔧 配置说明
+## 🔧 Configuration
 
-### 环境变量
-项目支持通过环境变量覆盖配置，格式为 `SECTION_KEY`，例如：
-- `HTTP_ADDRESS` 对应 `http.address`
-- `DB_DRIVER` 对应 `db.driver`
+### Environment Variables
+Override configurations via environment variables using `SECTION_KEY` format, e.g.:
+- `HTTP_ADDRESS` → `http.address`
+- `DB_DRIVER` → `db.driver`
 
-### 配置文件
-主要配置文件位于 `config/config.yaml`，包含：
-- HTTP 服务配置
-- 日志配置
-- 数据库配置
-- Redis 配置
-- Asynq 配置
-- Kafka 配置
+### Configuration File
+Primary config: `config/config.yaml`, including:
+- HTTP service settings
+- Logging configuration
+- Database configuration
+- Redis configuration
+- Asynq configuration
+- Kafka configuration
 
-## 🧪 测试
+## 🧪 Testing
 
-### 运行测试
+### Run Tests
 ```bash
-# 运行所有测试
+# Run all tests
 go test ./...
 
-# 运行特定包的测试
+# Run tests for a specific package
 go test ./internal/service
 
-# 运行测试并显示覆盖率
+# Run tests with coverage report
 go test -cover ./...
 ```
 
-### 测试覆盖率
-目标测试覆盖率 ≥ 60%
+### Test Coverage Target
+ ≥ 60%
 
-## 📚 API 文档
+## 📚 API Documentation
 
-### 用户管理 API
+### User Management APIs
 
-#### 用户注册
+#### Register User
 ```http
 POST /api/v1/users
 Content-Type: application/json
 
 {
-  "name": "用户名",
+  "name": "username",
   "email": "user@example.com",
   "password": "password123"
 }
 ```
 
-#### 获取用户列表
+#### Get User List
 ```http
 GET /api/v1/users?page=1&page_size=20&status=active
 ```
 
-#### 获取用户详情
+#### Get User Details
 ```http
 GET /api/v1/users/{id}
 ```
 
-#### 更新用户
+#### Update User
 ```http
 PUT /api/v1/users/{id}
 Content-Type: application/json
@@ -149,12 +150,12 @@ Content-Type: application/json
 }
 ```
 
-#### 删除用户
+#### Delete User
 ```http
 DELETE /api/v1/users/{id}
 ```
 
-#### 改变用户状态
+#### Change User Status
 ```http
 PATCH /api/v1/users/{id}/status
 Content-Type: application/json
@@ -164,59 +165,73 @@ Content-Type: application/json
 }
 ```
 
-## 🔍 当前状态
+## 🔍 Current Status
 
-### ✅ 已完成
-- Clean Architecture 架构设计
-- 用户领域模型和接口定义
-- 用户仓储层实现
-- 用户服务层实现
-- HTTP 处理器实现
-- 统一错误处理
-- 统一响应格式
-- 配置管理
-- 中间件实现
-- 单元测试框架
+### ✅ Completed
+- Clean Architecture implementation
+- User domain models and interfaces
+- User repository layer
+- User service layer
+- HTTP handlers
+- Unified error handling
+- Unified response formatting
+- Configuration management
+- Middleware implementation
+- Unit testing framework
 
-### ⚠️ 已知问题
-- 日志包 (pkg/logger) 存在 zerolog API 使用问题
-- Ent 代码生成需要重新执行
-- 部分依赖注入配置需要完善
+### ⚠️ Known Issues
+- Logger package (`pkg/logger`) has zerolog API usage issues
+- Ent code generation needs regeneration
+- Partial dependency injection configuration requires improvement
 
-### 🚧 进行中
-- 项目重构和架构优化
-- 代码质量改进
+### 🚧 In Progress
+- Project refactoring and architecture optimization
+- Code quality improvements
 
-### 📋 计划中
-- Redis 集成
-- Asynq 任务队列
-- Kafka 消息队列
-- 监控和指标
-- 集成测试
-- Docker 支持
-- CI/CD 配置
+### 📋 Planned
+- Redis integration
+- Asynq task queue
+- Kafka message queue
+- Monitoring and metrics
+- Integration testing
+- Docker support
+- CI/CD configuration
 
-## 🤝 贡献指南
+## 🤝 Contribution Guide
 
-1. Fork 项目
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
+1. Fork the project
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## 📄 许可证
+## 📄 License
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+MIT License - see [LICENSE](LICENSE) for details.
 
-## 📞 联系方式
+## 📞 Contact
 
-如有问题或建议，请通过以下方式联系：
-- 提交 Issue
-- 发送邮件
-- 参与讨论
+For questions or suggestions:
+- Open an Issue
+- Send an email
+- Join discussions
 
 ---
 
-**注意**: 这是一个重构中的项目，部分功能可能不稳定。建议在开发环境中使用。
+**Note**: This is an under-refactoring project. Some features may be unstable. Recommended for development environments only.
 
+## 🔗 Featured Link
+
+**Tools.Beer** is a free online toolkit for developers, designers, and general users.  
+No installation required – open your browser to access data processing, encryption, image editing, and document conversion tools.
+
+### 🔧 Key Features
+- 🛠 Developer Tools: [JSON Formatter](https://tools.beer/en/json), [Regex Tester](https://tools.beer/en/regex), [Base64 Encoder/Decoder](https://tools.beer/en/base64), [UUID/Password Generator](https://tools.beer/en/password)
+- 🔐 Security & Encryption: [JWT Decoder](https://tools.beer/en/jwt), [Hash Calculator](https://tools.beer/en/hash)
+- 📊 Data Conversion: [CSV ↔ Parquet](https://tools.beer/en/parquet), [YAML ↔ JSON](https://tools.beer/en/yaml), [URL Encoder/Decoder](https://tools.beer/en/url), [Timestamp Converter](https://tools.beer/en/timestamp)
+- 🖼 Image Tools: [Image Compression](https://tools.beer/en/imgcompress), [Format Conversion](https://tools.beer/en/imgconvert), [Cropping](https://tools.beer/en/imgcrop), [Watermarking](https://tools.beer/en/imgwatermark), [Rotation](https://tools.beer/en/imgrotate)
+- 📄 Files & Documents: [PDF Tools](https://tools.beer/en/pdf), [Smart Tools](https://tools.beer/en/smart)
+- 🎨 Design Utilities: [Color Picker](https://tools.beer/en/colorpicker), [QR Code Generator](https://tools.beer/en/qrcode), [Barcode Generator](https://tools.beer/en/barcode)
+
+✨ Fast, minimalistic, and secure. Supports multiple languages (English & 中文). Forever free.
 
