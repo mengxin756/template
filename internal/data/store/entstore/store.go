@@ -4,12 +4,16 @@ package entstore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 
 	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data/ent"
 	"example.com/classic/pkg/logger"
+	_ "github.com/go-sql-driver/mysql"
 	_ "modernc.org/sqlite"
 )
 
@@ -29,7 +33,23 @@ func New(ctx context.Context, cfg *config.Config, log logger.Logger) (*Store, er
 
 	switch cfg.DB.Driver {
 	case "sqlite":
-		client, err = ent.Open(dialect.SQLite, cfg.DB.DSN)
+		// Ensure _fk=1 is present for foreign keys pragma
+		dsn := cfg.DB.DSN
+		if !strings.Contains(dsn, "_fk=1") {
+			if strings.Contains(dsn, "?") {
+				dsn += "&_fk=1"
+			} else {
+				dsn += "?_fk=1"
+			}
+		}
+		var sqldb *sql.DB
+		sqldb, err = sql.Open("sqlite", dsn)
+		if err == nil {
+			// Best-effort enable foreign_keys in case DSN was ignored
+			_, _ = sqldb.Exec("PRAGMA foreign_keys=ON")
+			drv := entsql.OpenDB(dialect.SQLite, sqldb)
+			client = ent.NewClient(ent.Driver(drv))
+		}
 	case "mysql":
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
 			cfg.DB.Username, cfg.DB.Password, cfg.DB.Host, cfg.DB.Port, cfg.DB.Database, cfg.DB.Charset)
@@ -73,11 +93,11 @@ func New(ctx context.Context, cfg *config.Config, log logger.Logger) (*Store, er
 // AutoMigrate 自动迁移数据库
 func (s *Store) AutoMigrate(ctx context.Context) error {
 	s.log.Info(ctx, "starting database migration")
-	
+
 	if err := s.Client.Schema.Create(ctx); err != nil {
 		return fmt.Errorf("create schema: %w", err)
 	}
-	
+
 	s.log.Info(ctx, "database migration completed successfully")
 	return nil
 }
@@ -94,5 +114,3 @@ func (s *Store) Close() error {
 func (s *Store) Ping(ctx context.Context) error {
 	return s.Client.Schema.Create(ctx)
 }
-
-

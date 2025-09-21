@@ -13,33 +13,33 @@ type Environment string
 
 const (
 	EnvDevelopment Environment = "development"
-	EnvStaging    Environment = "staging"
-	EnvProduction Environment = "production"
+	EnvStaging     Environment = "staging"
+	EnvProduction  Environment = "production"
 )
 
 // HTTPConfig HTTP 服务配置
 type HTTPConfig struct {
-	Address         string        `mapstructure:"address"`
-	ReadTimeout     time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout    time.Duration `mapstructure:"write_timeout"`
-	IdleTimeout     time.Duration `mapstructure:"idle_timeout"`
-	MaxHeaderBytes  int           `mapstructure:"max_header_bytes"`
-	EnableCORS      bool          `mapstructure:"enable_cors"`
-	EnableMetrics   bool          `mapstructure:"enable_metrics"`
-	EnableHealth    bool          `mapstructure:"enable_health"`
+	Address        string        `mapstructure:"address"`
+	ReadTimeout    time.Duration `mapstructure:"read_timeout"`
+	WriteTimeout   time.Duration `mapstructure:"write_timeout"`
+	IdleTimeout    time.Duration `mapstructure:"idle_timeout"`
+	MaxHeaderBytes int           `mapstructure:"max_header_bytes"`
+	EnableCORS     bool          `mapstructure:"enable_cors"`
+	EnableMetrics  bool          `mapstructure:"enable_metrics"`
+	EnableHealth   bool          `mapstructure:"enable_health"`
 }
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level        string `mapstructure:"level"`
-	Encoding     string `mapstructure:"encoding"`
-	Development  bool   `mapstructure:"development"`
-	Service      string `mapstructure:"service"`
-	Output       string `mapstructure:"output"`
-	MaxSize      int    `mapstructure:"max_size"`
-	MaxAge       int    `mapstructure:"max_age"`
-	MaxBackups   int    `mapstructure:"max_backups"`
-	Compress     bool   `mapstructure:"compress"`
+	Level       string `mapstructure:"level"`
+	Encoding    string `mapstructure:"encoding"`
+	Development bool   `mapstructure:"development"`
+	Service     string `mapstructure:"service"`
+	Output      string `mapstructure:"output"`
+	MaxSize     int    `mapstructure:"max_size"`
+	MaxAge      int    `mapstructure:"max_age"`
+	MaxBackups  int    `mapstructure:"max_backups"`
+	Compress    bool   `mapstructure:"compress"`
 }
 
 // DBConfig 数据库配置
@@ -75,57 +75,57 @@ type RedisConfig struct {
 
 // AsynqConfig Asynq 任务队列配置
 type AsynqConfig struct {
-	RedisAddr     string        `mapstructure:"redis_addr"`
-	RedisPassword string        `mapstructure:"redis_password"`
-	RedisDB       int           `mapstructure:"redis_db"`
-	Concurrency   int           `mapstructure:"concurrency"`
-	Queues        []string      `mapstructure:"queues"`
-	StrictPriority bool         `mapstructure:"strict_priority"`
+	RedisAddr       string        `mapstructure:"redis_addr"`
+	RedisPassword   string        `mapstructure:"redis_password"`
+	RedisDB         int           `mapstructure:"redis_db"`
+	Concurrency     int           `mapstructure:"concurrency"`
+	Queues          []string      `mapstructure:"queues"`
+	StrictPriority  bool          `mapstructure:"strict_priority"`
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
 }
 
 // KafkaConfig Kafka 配置
 type KafkaConfig struct {
-	Brokers       []string      `mapstructure:"brokers"`
-	GroupID       string        `mapstructure:"group_id"`
-	Topic         string        `mapstructure:"topic"`
-	Partitions    int           `mapstructure:"partitions"`
-	Replicas      int           `mapstructure:"replicas"`
-	Retention     time.Duration `mapstructure:"retention"`
-	MaxMessageBytes int         `mapstructure:"max_message_bytes"`
+	Brokers         []string      `mapstructure:"brokers"`
+	GroupID         string        `mapstructure:"group_id"`
+	Topic           string        `mapstructure:"topic"`
+	Partitions      int           `mapstructure:"partitions"`
+	Replicas        int           `mapstructure:"replicas"`
+	Retention       time.Duration `mapstructure:"retention"`
+	MaxMessageBytes int           `mapstructure:"max_message_bytes"`
 }
 
 // Config 应用配置
 type Config struct {
-	Environment Environment   `mapstructure:"environment"`
-	Service     string       `mapstructure:"service"`
-	Version     string       `mapstructure:"version"`
-	HTTP        HTTPConfig   `mapstructure:"http"`
-	Log         LogConfig    `mapstructure:"log"`
-	DB          DBConfig     `mapstructure:"db"`
-	Redis       RedisConfig  `mapstructure:"redis"`
-	Asynq       AsynqConfig  `mapstructure:"asynq"`
-	Kafka       KafkaConfig  `mapstructure:"kafka"`
+	Environment Environment `mapstructure:"environment"`
+	Service     string      `mapstructure:"service"`
+	Version     string      `mapstructure:"version"`
+	HTTP        HTTPConfig  `mapstructure:"http"`
+	Log         LogConfig   `mapstructure:"log"`
+	DB          DBConfig    `mapstructure:"db"`
+	Redis       RedisConfig `mapstructure:"redis"`
+	Asynq       AsynqConfig `mapstructure:"asynq"`
+	Kafka       KafkaConfig `mapstructure:"kafka"`
 }
 
 // Load 加载配置
 func Load() (*Config, error) {
 	v := viper.New()
-	
+
 	// 设置配置文件
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
 	v.AddConfigPath("./config")
 	v.AddConfigPath("../config")
-	
+
 	// 环境变量支持
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	
+
 	// 设置默认值
 	setDefaults(v)
-	
+
 	// 读取配置文件
 	if err := v.ReadInConfig(); err != nil {
 		// 配置文件不存在时使用默认值
@@ -133,17 +133,17 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("read config file: %w", err)
 		}
 	}
-	
+
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
-	
+
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
-	
+
 	return &cfg, nil
 }
 
@@ -153,7 +153,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("environment", "development")
 	v.SetDefault("service", "classic-api")
 	v.SetDefault("version", "1.0.0")
-	
+
 	// HTTP 配置
 	v.SetDefault("http.address", ":8080")
 	v.SetDefault("http.read_timeout", "10s")
@@ -163,7 +163,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http.enable_cors", true)
 	v.SetDefault("http.enable_metrics", true)
 	v.SetDefault("http.enable_health", true)
-	
+
 	// 日志配置
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.encoding", "json")
@@ -174,21 +174,21 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.max_age", 30)
 	v.SetDefault("log.max_backups", 10)
 	v.SetDefault("log.compress", true)
-	
-	// 数据库配置
-	v.SetDefault("db.driver", "sqlite")
-	v.SetDefault("db.dsn", "file:ent?mode=memory&cache=shared&_fk=1")
-	v.SetDefault("db.host", "localhost")
-	v.SetDefault("db.port", 3306)
+
+	// 数据库配置（默认 MySQL，便于与 docker-compose 对齐）
+	v.SetDefault("db.driver", "mysql")
+	v.SetDefault("db.dsn", "classic:classic@tcp(127.0.0.1:3307)/classic?charset=utf8mb4&parseTime=True&loc=Local")
+	v.SetDefault("db.host", "127.0.0.1")
+	v.SetDefault("db.port", 3307)
 	v.SetDefault("db.charset", "utf8mb4")
 	v.SetDefault("db.max_open", 100)
 	v.SetDefault("db.max_idle", 10)
 	v.SetDefault("db.max_lifetime", "1h")
 	v.SetDefault("db.auto_migrate", true)
 	v.SetDefault("db.log_level", "warn")
-	
+
 	// Redis 配置
-	v.SetDefault("redis.host", "localhost")
+	v.SetDefault("redis.host", "127.0.0.1")
 	v.SetDefault("redis.port", 6379)
 	v.SetDefault("redis.database", 0)
 	v.SetDefault("redis.pool_size", 10)
@@ -197,15 +197,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.dial_timeout", "5s")
 	v.SetDefault("redis.read_timeout", "3s")
 	v.SetDefault("redis.write_timeout", "3s")
-	
+
 	// Asynq 配置
-	v.SetDefault("asynq.redis_addr", "localhost:6379")
+	v.SetDefault("asynq.redis_addr", "127.0.0.1:6379")
 	v.SetDefault("asynq.redis_db", 1)
 	v.SetDefault("asynq.concurrency", 10)
 	v.SetDefault("asynq.queues", []string{"default", "critical"})
 	v.SetDefault("asynq.strict_priority", false)
 	v.SetDefault("asynq.shutdown_timeout", "30s")
-	
+
 	// Kafka 配置
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.group_id", "classic-consumer")
@@ -224,22 +224,22 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("invalid environment: %s", c.Environment)
 	}
-	
+
 	// 验证 HTTP 配置
 	if c.HTTP.Address == "" {
 		return fmt.Errorf("http address is required")
 	}
-	
+
 	// 验证日志配置
 	if c.Log.Level == "" {
 		return fmt.Errorf("log level is required")
 	}
-	
+
 	// 验证数据库配置
 	if c.DB.Driver == "" {
 		return fmt.Errorf("db driver is required")
 	}
-	
+
 	return nil
 }
 
@@ -257,5 +257,3 @@ func (c *Config) IsStaging() bool {
 func (c *Config) IsProduction() bool {
 	return c.Environment == EnvProduction
 }
-
-

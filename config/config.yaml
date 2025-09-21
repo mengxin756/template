@@ -28,12 +28,12 @@ log:
 
 # 数据库配置
 db:
-  driver: sqlite
-  dsn: "file:ent?mode=memory&cache=shared&_fk=1"
-  host: localhost
-  port: 3306
-  username: ""
-  password: ""
+  driver: mysql
+  dsn: "classic:classic@tcp(127.0.0.1:3307)/classic?charset=utf8mb4&parseTime=True&loc=Local"
+  host: 127.0.0.1
+  port: 3307
+  username: classic
+  password: classic
   database: classic
   charset: utf8mb4
   max_open: 100
@@ -44,7 +44,7 @@ db:
 
 # Redis 配置
 redis:
-  host: localhost
+  host: 127.0.0.1
   port: 6379
   password: ""
   database: 0
@@ -57,7 +57,7 @@ redis:
 
 # Asynq 任务队列配置
 asynq:
-  redis_addr: localhost:6379
+  redis_addr: 127.0.0.1:6379
   redis_password: ""
   redis_db: 1
   concurrency: 10
