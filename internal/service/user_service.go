@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"time"
 
 	"example.com/classic/internal/domain"
@@ -280,29 +278,17 @@ func (s *userService) isValidEmail(email string) bool {
 	return len(email) > 0 && len(email) <= 100
 }
 
-// hashPassword 加密密码
+// hashPassword 加密密码（bcrypt 自动包含 salt，无需手动生成）
 func (s *userService) hashPassword(password string) (string, error) {
-	// 生成随机盐值
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		return "", err
-	}
-
-	// 使用 bcrypt 加密
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}
 
-	return hex.EncodeToString(hashedBytes), nil
+	return string(hashedBytes), nil
 }
 
 // verifyPassword 验证密码
 func (s *userService) verifyPassword(hashedPassword, password string) error {
-	hashedBytes, err := hex.DecodeString(hashedPassword)
-	if err != nil {
-		return err
-	}
-
-	return bcrypt.CompareHashAndPassword(hashedBytes, []byte(password))
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
