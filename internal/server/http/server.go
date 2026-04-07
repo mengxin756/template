@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/handler"
 	"example.com/classic/pkg/logger"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // Server HTTP 服务器
@@ -36,12 +37,12 @@ func NewServer(cfg *config.Config, log logger.Logger, userHandler *handler.UserH
 		config: cfg,
 		log:    log,
 		server: &http.Server{
-			Addr:              cfg.HTTP.Address,
-			Handler:           engine,
-			ReadTimeout:       cfg.HTTP.ReadTimeout,
-			WriteTimeout:      cfg.HTTP.WriteTimeout,
-			IdleTimeout:       cfg.HTTP.IdleTimeout,
-			MaxHeaderBytes:    cfg.HTTP.MaxHeaderBytes,
+			Addr:           cfg.HTTP.Address,
+			Handler:        engine,
+			ReadTimeout:    cfg.HTTP.ReadTimeout,
+			WriteTimeout:   cfg.HTTP.WriteTimeout,
+			IdleTimeout:    cfg.HTTP.IdleTimeout,
+			MaxHeaderBytes: cfg.HTTP.MaxHeaderBytes,
 		},
 	}
 
@@ -80,12 +81,12 @@ func (s *Server) setupRoutes(userHandler *handler.UserHandler) {
 		// 用户相关路由
 		users := v1.Group("/users")
 		{
-			users.POST("", userHandler.Register)                    // 用户注册
-			users.GET("", userHandler.List)                        // 用户列表
-			users.GET("/:id", userHandler.GetByID)                 // 获取用户
-			users.PUT("/:id", userHandler.Update)                  // 更新用户
-			users.DELETE("/:id", userHandler.Delete)               // 删除用户
-			users.PATCH("/:id/status", userHandler.ChangeStatus)   // 改变用户状态
+			users.POST("", userHandler.Register)                 // 用户注册
+			users.GET("", userHandler.List)                      // 用户列表
+			users.GET("/:id", userHandler.GetByID)               // 获取用户
+			users.PUT("/:id", userHandler.Update)                // 更新用户
+			users.DELETE("/:id", userHandler.Delete)             // 删除用户
+			users.PATCH("/:id/status", userHandler.ChangeStatus) // 改变用户状态
 		}
 	}
 }
@@ -184,18 +185,7 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // generateTraceID 生成追踪ID
 func generateTraceID() string {
-	// 简单的追踪ID生成，实际项目中可以使用 UUID
-	return time.Now().Format("20060102150405") + "-" + randomString(8)
-}
-
-// randomString 生成随机字符串
-func randomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
-	}
-	return string(b)
+	return uuid.New().String()
 }
 
 // GetHTTPServer 获取 HTTP 服务器实例

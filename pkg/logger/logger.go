@@ -17,6 +17,7 @@ type Logger interface {
 	Error(ctx context.Context, msg string, fields ...Field)
 	Panic(ctx context.Context, msg string, fields ...Field)
 	WithContext(ctx context.Context) Logger
+	With(fields ...Field) Logger
 	Sync() error
 }
 
@@ -29,6 +30,17 @@ type Field struct {
 // F 创建日志字段
 func F(key string, value interface{}) Field {
 	return Field{Key: key, Value: value}
+}
+
+// traceIDHook 从 context 中提取 trace_id 并添加到日志
+type traceIDHook struct{}
+
+func (h traceIDHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
+	if ctx := e.GetCtx(); ctx != nil {
+		if traceID := getTraceID(ctx); traceID != "" {
+			e.Str("trace_id", traceID)
+		}
+	}
 }
 
 // logger 日志实现
@@ -73,75 +85,85 @@ func New(service string, level string, isDevelopment bool) Logger {
 		Timestamp().
 		Logger()
 
+	// 添加 trace_id hook
+	baseLogger = baseLogger.Hook(traceIDHook{})
+
 	return &logger{log: baseLogger}
-}
-
-// withTraceID 添加 trace_id 到日志上下文
-func (l *logger) withTraceID(ctx context.Context) zerolog.Context {
-	logCtx := l.log.With()
-
-	if ctx != nil {
-		if traceID := getTraceID(ctx); traceID != "" {
-			logCtx = logCtx.Str("trace_id", traceID)
-		}
-	}
-
-	return logCtx
 }
 
 // Debug 调试日志
 func (l *logger) Debug(ctx context.Context, msg string, fields ...Field) {
-	logCtx := l.withTraceID(ctx)
-	for _, field := range fields {
-		logCtx = logCtx.Interface(field.Key, field.Value)
+	event := l.log.Debug()
+	if ctx != nil {
+		event = event.Ctx(ctx)
 	}
-	logger := logCtx.Logger()
-	logger.Debug().Msg(msg)
+	for _, field := range fields {
+		event = event.Interface(field.Key, field.Value)
+	}
+	event.Msg(msg)
 }
 
 // Info 信息日志
 func (l *logger) Info(ctx context.Context, msg string, fields ...Field) {
-	logCtx := l.withTraceID(ctx)
-	for _, field := range fields {
-		logCtx = logCtx.Interface(field.Key, field.Value)
+	event := l.log.Info()
+	if ctx != nil {
+		event = event.Ctx(ctx)
 	}
-	logger := logCtx.Logger()
-	logger.Info().Msg(msg)
+	for _, field := range fields {
+		event = event.Interface(field.Key, field.Value)
+	}
+	event.Msg(msg)
 }
 
 // Warn 警告日志
 func (l *logger) Warn(ctx context.Context, msg string, fields ...Field) {
-	logCtx := l.withTraceID(ctx)
-	for _, field := range fields {
-		logCtx = logCtx.Interface(field.Key, field.Value)
+	event := l.log.Warn()
+	if ctx != nil {
+		event = event.Ctx(ctx)
 	}
-	logger := logCtx.Logger()
-	logger.Warn().Msg(msg)
+	for _, field := range fields {
+		event = event.Interface(field.Key, field.Value)
+	}
+	event.Msg(msg)
 }
 
 // Error 错误日志
 func (l *logger) Error(ctx context.Context, msg string, fields ...Field) {
-	logCtx := l.withTraceID(ctx)
-	for _, field := range fields {
-		logCtx = logCtx.Interface(field.Key, field.Value)
+	event := l.log.Error()
+	if ctx != nil {
+		event = event.Ctx(ctx)
 	}
-	logger := logCtx.Logger()
-	logger.Error().Msg(msg)
+	for _, field := range fields {
+		event = event.Interface(field.Key, field.Value)
+	}
+	event.Msg(msg)
 }
 
 // Panic 严重错误日志
 func (l *logger) Panic(ctx context.Context, msg string, fields ...Field) {
-	logCtx := l.withTraceID(ctx)
-	for _, field := range fields {
-		logCtx = logCtx.Interface(field.Key, field.Value)
+	event := l.log.Panic()
+	if ctx != nil {
+		event = event.Ctx(ctx)
 	}
-	logger := logCtx.Logger()
-	logger.Panic().Msg(msg)
+	for _, field := range fields {
+		event = event.Interface(field.Key, field.Value)
+	}
+	event.Msg(msg)
 }
 
 // WithContext 创建带上下文的日志实例
 func (l *logger) WithContext(ctx context.Context) Logger {
-	return &logger{log: l.withTraceID(ctx).Logger()}
+	newLogger := l.log.With()
+	return &logger{log: newLogger.Logger()}
+}
+
+// With 添加固定字段到日志实例
+func (l *logger) With(fields ...Field) Logger {
+	ctx := l.log.With()
+	for _, field := range fields {
+		ctx = ctx.Interface(field.Key, field.Value)
+	}
+	return &logger{log: ctx.Logger()}
 }
 
 // Sync 同步日志

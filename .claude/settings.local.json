@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "mcp__plugin_playwright_playwright__browser_snapshot",
-      "mcp__plugin_playwright_playwright__browser_tabs"
+      "mcp__plugin_playwright_playwright__browser_tabs",
+      "Bash(go mod tidy)",
+      "Bash(go build ./...)",
+      "Bash(go test ./...)",
+      "Bash(go doc entgo.io/ent Client.Debug)"
     ]
   }
 }
