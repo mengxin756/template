@@ -10,19 +10,18 @@ import (
 
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data/ent"
-	"example.com/classic/internal/data/redis"
 	"example.com/classic/internal/data/store/entstore"
+	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler"
 	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
-	"example.com/classic/internal/server/http"
 	httpserver "example.com/classic/internal/server/http"
 	"example.com/classic/internal/service"
 	"example.com/classic/pkg/logger"
 )
 
-// InitHTTPServer 返回完整的 HTTP Server 和配置
-func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.Logger, error) {
+// InitHTTPServer 返回完整的 HTTP Server
+func InitHTTPServer(ctx context.Context) (*http.Server, error) {
 	wire.Build(
 		// 配置和日志
 		config.Load,
@@ -31,8 +30,11 @@ func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.L
 		// 数据层
 		entstore.New,
 		provideEntClient,
-		redis.New,
 		asynq.New,
+
+		// 领域服务
+		providePasswordHasher,
+		provideUserFactory,
 
 		// 仓储层
 		repository.NewUserRepository,
@@ -44,10 +46,10 @@ func InitHTTPServer(ctx context.Context) (*http.Server, *config.Config, logger.L
 		handler.NewUserHandler,
 
 		// HTTP 服务器
-		http.NewServer,
+		httpserver.NewServer,
 		provideHTTPServer,
 	)
-	return nil, nil, nil, nil
+	return nil, nil
 }
 
 // provideLogger 提供日志实例
@@ -55,6 +57,16 @@ func provideLogger(cfg *config.Config) logger.Logger {
 	log := logger.New(cfg.Service, cfg.Log.Level, cfg.IsDevelopment())
 	logger.SetGlobalLogger(log)
 	return log
+}
+
+// providePasswordHasher 提供密码哈希器
+func providePasswordHasher() domain.PasswordHasher {
+	return domain.NewBcryptPasswordHasher()
+}
+
+// provideUserFactory 提供用户工厂
+func provideUserFactory(hasher domain.PasswordHasher) domain.UserFactory {
+	return domain.NewUserFactory(hasher)
 }
 
 // provideEntClient 提供 Ent 客户端

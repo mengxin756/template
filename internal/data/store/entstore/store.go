@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	entgo "entgo.io/ent"
+	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"example.com/classic/internal/config"
-	"example.com/classic/internal/data/ent"
 	"example.com/classic/pkg/logger"
 	_ "github.com/go-sql-driver/mysql"
 	_ "modernc.org/sqlite"
@@ -20,46 +19,41 @@ import (
 
 // Store 数据存储
 type Store struct {
-	Client *ent.Client
+	Client interface{ QueryContext(ctx context.Context, query string, args ...interface{}) error }
 	config *config.Config
 	log    logger.Logger
 }
 
-// sqlLogger 用于记录SQL查询，自动包含trace_id
-type sqlLogger struct {
-	log logger.Logger
-}
-
-// 实现ent.LogFunc接口
-func (l *sqlLogger) Log(ctx context.Context, args ...interface{}) error {
-	if len(args) < 2 {
-		return nil
-	}
-
-	// 提取查询信息
-	var query string
-	var queryArgs []interface{}
-
-	// Ent传递的参数格式：
-	// args[0]: 操作类型
-	// args[1]: 查询信息 (map)
-	if info, ok := args[1].(map[string]interface{}); ok {
-		if sql, ok := info["sql"].(string); ok {
-			query = sql
+// newSQLLogger 创建一个符合 ent.Log 接口的日志函数
+func newSQLLogger(log logger.Logger) func(...interface{}) {
+	return func(args ...interface{}) {
+		if len(args) < 2 {
+			return
 		}
-		if params, ok := info["args"].([]interface{}); ok {
-			queryArgs = params
+
+		// 提取查询信息
+		var query string
+		var queryArgs []interface{}
+
+		// Ent传递的参数格式：
+		// args[0]: 操作类型
+		// args[1]: 查询信息 (map)
+		if info, ok := args[1].(map[string]interface{}); ok {
+			if sql, ok := info["sql"].(string); ok {
+				query = sql
+			}
+			if params, ok := info["args"].([]interface{}); ok {
+				queryArgs = params
+			}
+		}
+
+		if query != "" {
+			log.Debug(context.Background(), "SQL query",
+				logger.F("sql", query),
+				logger.F("args", queryArgs),
+			)
 		}
 	}
-
-	if query != "" {
-		l.log.Debug(ctx, "SQL query",
-			logger.F("sql", query),
-			logger.F("args", queryArgs),
-		)
-	}
-
-	return nil
 }
 
 // New 创建数据存储实例
@@ -67,7 +61,6 @@ func New(ctx context.Context, cfg *config.Config, log logger.Logger) (*Store, er
 	log.Info(ctx, "initializing data store", logger.F("driver", cfg.DB.Driver))
 
 	var client *ent.Client
-	var err error
 
 	// 创建SQL driver包装器以启用日志记录
 	var drv *entsql.Driver
@@ -114,9 +107,8 @@ func New(ctx context.Context, cfg *config.Config, log logger.Logger) (*Store, er
 	}
 
 	// 如果需要调试日志，使用自定义logger（会自动包含trace_id）
-	if cfg.DB.MaxOpen > 0 {
-		debugLog := &sqlLogger{log: log}
-		client = ent.NewClient(ent.Driver(drv), ent.Log(debugLog))
+	if cfg.DB.LogLevel == "debug" {
+		client = ent.NewClient(ent.Driver(drv), ent.Log(newSQLLogger(log)))
 	} else {
 		client = ent.NewClient(ent.Driver(drv))
 	}
@@ -161,5 +153,5 @@ func (s *Store) Close() error {
 
 // Ping 检查数据库连接
 func (s *Store) Ping(ctx context.Context) error {
-	return s.Client.Schema.Create(ctx)
+	return s.Client.QueryContext(ctx, "SELECT 1").Err()
 }

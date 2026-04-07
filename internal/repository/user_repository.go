@@ -24,12 +24,12 @@ func NewUserRepository(client *ent.Client, log logger.Logger) domain.UserReposit
 	}
 }
 
-// Create 创建用户
+// Create 创建用户（向后兼容）
 func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
-	r.log.Debug(ctx, "creating user", logger.F("email", user.Email))
+	r.log.Debug(ctx, "creating user", logger.F("email", user.Email().String()))
 
 	// 检查邮箱是否已存在
-	exists, err := r.ExistsByEmail(ctx, user.Email)
+	exists, err := r.ExistsByEmail(ctx, user.Email().String())
 	if err != nil {
 		return errors.WrapInternalError(err, "check email exists failed")
 	}
@@ -39,10 +39,10 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 
 	// 创建 Ent 用户
 	entUser, err := r.client.User.Create().
-		SetName(user.Name).
-		SetEmail(user.Email).
-		SetPassword(user.Password).
-		SetStatus(string(user.Status)).
+		SetName(user.Name().String()).
+		SetEmail(user.Email().String()).
+		SetPassword(user.GetHashedPassword()).
+		SetStatus(string(user.Status())).
 		Save(ctx)
 	if err != nil {
 		r.log.Error(ctx, "create user failed", logger.F("error", err))
@@ -50,11 +50,11 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	}
 
 	// 更新领域对象
-	user.ID = entUser.ID
-	user.CreatedAt = entUser.CreatedAt
-	user.UpdatedAt = entUser.UpdatedAt
+	user.SetID(entUser.ID)
+	user.SetCreatedAt(entUser.CreatedAt)
+	user.SetUpdatedAt(entUser.UpdatedAt)
 
-	r.log.Info(ctx, "user created successfully", logger.F("user_id", user.ID))
+	r.log.Info(ctx, "user created successfully", logger.F("user_id", user.ID()))
 	return nil
 }
 
@@ -71,7 +71,7 @@ func (r *userRepository) GetByID(ctx context.Context, id int) (*domain.User, err
 		return nil, errors.WrapInternalError(err, "get user by id failed")
 	}
 
-	return r.entToDomain(entUser), nil
+	return r.entToDomain(entUser)
 }
 
 // GetByEmail 根据邮箱获取用户
@@ -89,55 +89,33 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.
 		return nil, errors.WrapInternalError(err, "get user by email failed")
 	}
 
-	return r.entToDomain(entUser), nil
+	return r.entToDomain(entUser)
 }
 
 // Update 更新用户
 func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
-	r.log.Debug(ctx, "updating user", logger.F("user_id", user.ID))
+	r.log.Debug(ctx, "updating user", logger.F("user_id", user.ID()))
 
 	// 检查用户是否存在
-	existingUser, err := r.GetByID(ctx, user.ID)
+	_, err := r.GetByID(ctx, user.ID())
 	if err != nil {
 		return err
 	}
 
-	// 如果邮箱有变化，检查新邮箱是否已存在
-	if existingUser.Email != user.Email {
-		exists, err := r.ExistsByEmail(ctx, user.Email)
-		if err != nil {
-			return errors.WrapInternalError(err, "check email exists failed")
-		}
-		if exists {
-			return errors.ErrUserAlreadyExists
-		}
-	}
-
 	// 更新 Ent 用户
-	update := r.client.User.UpdateOneID(user.ID)
-	if user.Name != "" {
-		update.SetName(user.Name)
-	}
-	if user.Email != "" {
-		update.SetEmail(user.Email)
-	}
-	if user.Password != "" {
-		update.SetPassword(user.Password)
-	}
-	if user.Status != "" {
-		update.SetStatus(string(user.Status))
-	}
-
-	entUser, err := update.Save(ctx)
+	entUser, err := r.client.User.UpdateOneID(user.ID()).
+		SetName(user.Name().String()).
+		SetEmail(user.Email().String()).
+		SetStatus(string(user.Status())).
+		Save(ctx)
 	if err != nil {
-		r.log.Error(ctx, "update user failed", logger.F("error", err), logger.F("user_id", user.ID))
+		r.log.Error(ctx, "update user failed", logger.F("error", err), logger.F("user_id", user.ID()))
 		return errors.WrapInternalError(err, "update user failed")
 	}
 
-	// 更新领域对象
-	user.UpdatedAt = entUser.UpdatedAt
+	user.SetUpdatedAt(entUser.UpdatedAt)
 
-	r.log.Info(ctx, "user updated successfully", logger.F("user_id", user.ID))
+	r.log.Info(ctx, "user updated successfully", logger.F("user_id", user.ID()))
 	return nil
 }
 
@@ -205,10 +183,16 @@ func (r *userRepository) List(ctx context.Context, query *domain.UserQuery) ([]*
 	// 转换为领域对象
 	users := make([]*domain.User, len(entUsers))
 	for i, entUser := range entUsers {
-		users[i] = r.entToDomain(entUser)
+		domainUser, err := r.entToDomain(entUser)
+		if err != nil {
+			return nil, 0, errors.WrapInternalError(err, "convert domain user failed")
+		}
+		users[i] = domainUser
 	}
 
-	r.log.Debug(ctx, "users listed successfully", logger.F("total", total), logger.F("count", len(users)))
+	r.log.Debug(ctx, "users listed successfully",
+		logger.F("total", total),
+		logger.F("count", len(users)))
 	return users, int64(total), nil
 }
 
@@ -224,38 +208,65 @@ func (r *userRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 	return exists, nil
 }
 
+// Save 保存聚合根
+func (r *userRepository) Save(ctx context.Context, aggregate *domain.UserAggregate) error {
+	user := aggregate.User()
+
+	if user.ID() == 0 {
+		// 新增
+		return r.Create(ctx, user)
+	}
+
+	// 更新
+	return r.Update(ctx, user)
+}
+
+// GetAggregateByID 根据ID获取聚合根
+func (r *userRepository) GetAggregateByID(ctx context.Context, id int) (*domain.UserAggregate, error) {
+	user, err := r.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 从用户实体重建聚合根
+	aggregate := domain.RebuildUserAggregate(user)
+	return aggregate, nil
+}
+
 // entToDomain 将 Ent 用户转换为领域用户
-func (r *userRepository) entToDomain(entUser *ent.User) *domain.User {
+func (r *userRepository) entToDomain(entUser *ent.User) (*domain.User, error) {
 	status := domain.Status(entUser.Status)
 	if !status.IsValid() {
 		status = domain.StatusInactive
 	}
 
-	return &domain.User{
-		ID:        entUser.ID,
-		Name:      entUser.Name,
-		Email:     entUser.Email,
-		Password:  entUser.Password,
-		Status:    status,
-		CreatedAt: entUser.CreatedAt,
-		UpdatedAt: entUser.UpdatedAt,
+	name, err := domain.NewName(entUser.Name)
+	if err != nil {
+		return nil, errors.WrapInternalError(err, "invalid user name from database")
 	}
-}
 
-// domainToEnt 将领域用户转换为 Ent 用户（用于更新）
-func (r *userRepository) domainToEnt(user *domain.User) *ent.UserUpdateOne {
-	update := r.client.User.UpdateOneID(user.ID)
-	if user.Name != "" {
-		update.SetName(user.Name)
+	email, err := domain.NewEmail(entUser.Email)
+	if err != nil {
+		return nil, errors.WrapInternalError(err, "invalid user email from database")
 	}
-	if user.Email != "" {
-		update.SetEmail(user.Email)
+
+	hashedPassword, err := domain.NewHashedPassword(entUser.Password)
+	if err != nil {
+		return nil, errors.WrapInternalError(err, "invalid user password from database")
 	}
-	if user.Password != "" {
-		update.SetPassword(user.Password)
+
+	user, err := domain.NewUser(
+		entUser.ID,
+		*name,
+		*email,
+		*hashedPassword,
+		status,
+		entUser.CreatedAt,
+		entUser.UpdatedAt,
+	)
+	if err != nil {
+		return nil, errors.WrapInternalError(err, "create user entity failed")
 	}
-	if user.Status != "" {
-		update.SetStatus(string(user.Status))
-	}
-	return update
+
+	return user, nil
 }

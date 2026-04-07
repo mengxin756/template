@@ -5,17 +5,6 @@ import (
 	"time"
 )
 
-// User 用户实体
-type User struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Password  string    `json:"-"` // 不暴露密码
-	Status    Status    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
 // Status 用户状态
 type Status string
 
@@ -68,43 +57,49 @@ type UserQuery struct {
 type UserRepository interface {
 	// Create 创建用户
 	Create(ctx context.Context, user *User) error
-	
+
 	// GetByID 根据ID获取用户
 	GetByID(ctx context.Context, id int) (*User, error)
-	
+
 	// GetByEmail 根据邮箱获取用户
 	GetByEmail(ctx context.Context, email string) (*User, error)
-	
+
 	// Update 更新用户
 	Update(ctx context.Context, user *User) error
-	
+
 	// Delete 删除用户
 	Delete(ctx context.Context, id int) error
-	
+
 	// List 查询用户列表
 	List(ctx context.Context, query *UserQuery) ([]*User, int64, error)
-	
+
 	// ExistsByEmail 检查邮箱是否存在
 	ExistsByEmail(ctx context.Context, email string) (bool, error)
+
+	// Save 保存聚合根
+	Save(ctx context.Context, aggregate *UserAggregate) error
+
+	// GetAggregateByID 根据ID获取聚合根
+	GetAggregateByID(ctx context.Context, id int) (*UserAggregate, error)
 }
 
 // UserService 用户服务接口
 type UserService interface {
 	// Register 用户注册
 	Register(ctx context.Context, req *CreateUserRequest) (*User, error)
-	
+
 	// GetByID 根据ID获取用户
 	GetByID(ctx context.Context, id int) (*User, error)
-	
+
 	// Update 更新用户
 	Update(ctx context.Context, id int, req *UpdateUserRequest) (*User, error)
-	
+
 	// Delete 删除用户
 	Delete(ctx context.Context, id int) error
-	
+
 	// List 查询用户列表
 	List(ctx context.Context, query *UserQuery) ([]*User, int64, error)
-	
+
 	// ChangeStatus 改变用户状态
 	ChangeStatus(ctx context.Context, id int, status Status) error
 }
@@ -113,16 +108,39 @@ type UserService interface {
 type UserHandler interface {
 	// Register 用户注册
 	Register(ctx context.Context, req *CreateUserRequest) (*User, error)
-	
+
 	// GetByID 根据ID获取用户
 	GetByID(ctx context.Context, id int) (*User, error)
-	
+
 	// Update 更新用户
 	Update(ctx context.Context, id int, req *UpdateUserRequest) (*User, error)
-	
+
 	// Delete 删除用户
 	Delete(ctx context.Context, id int) error
-	
+
 	// List 查询用户列表
 	List(ctx context.Context, query *UserQuery) ([]*User, int64, error)
+}
+
+// UserDTO 用户数据传输对象（用于向后兼容和 JSON 序列化）
+type UserDTO struct {
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Password  string    `json:"-"` // 不暴露密码
+	Status    Status    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PasswordHasher 密码哈希器接口（领域服务）
+type PasswordHasher interface {
+	Hash(password string) (string, error)
+	Verify(hashedPassword, password string) error
+}
+
+// UserFactory 用户工厂接口（领域服务）
+type UserFactory interface {
+	// CreateNewUser 创建新用户聚合根
+	CreateNewUser(name, email, password string) (*UserAggregate, error)
 }
