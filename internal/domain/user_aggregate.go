@@ -8,11 +8,8 @@ import (
 // UserAggregate 用户聚合根
 // 聚合根是一致性边界，负责协调聚合内的所有对象
 type UserAggregate struct {
-	user *User
-	// 未来可以扩展：
-	// profile   *Profile    // 用户资料实体
-	// settings  *Settings   // 用户设置实体
-	// addresses []*Address  // 用户地址列表
+	user    *User
+	events  *EventRecorder
 }
 
 // NewUserAggregate 创建新的用户聚合根
@@ -37,14 +34,16 @@ func NewUserAggregate(
 	}
 
 	return &UserAggregate{
-		user: user,
+		user:   user,
+		events: NewEventRecorder(),
 	}, nil
 }
 
 // RebuildUserAggregate 从已有用户重建聚合根
 func RebuildUserAggregate(user *User) *UserAggregate {
 	return &UserAggregate{
-		user: user,
+		user:   user,
+		events: NewEventRecorder(),
 	}
 }
 
@@ -60,19 +59,47 @@ func (a *UserAggregate) ID() int {
 
 // ChangeStatus 改变用户状态（聚合根协调）
 func (a *UserAggregate) ChangeStatus(newStatus Status) error {
-	// 可以在这里添加跨实体的业务规则
-	// 例如：如果用户有未完成的订单，不能禁用
+	oldStatus := a.user.Status()
 
-	return a.user.ChangeStatus(newStatus)
+	// 执行状态变更
+	if err := a.user.ChangeStatus(newStatus); err != nil {
+		return err
+	}
+
+	// 记录领域事件
+	a.events.AddEvent(NewUserStatusChangedEvent(
+		a.user.ID(),
+		a.user.Email().String(),
+		a.user.Name().String(),
+		oldStatus,
+		newStatus,
+	))
+
+	return nil
 }
 
 // UpdateProfile 更新用户资料
 func (a *UserAggregate) UpdateProfile(name Name, email Email) error {
-	return a.user.UpdateProfile(name, email)
+	oldName := a.user.Name().String()
+	oldEmail := a.user.Email().String()
+
+	if err := a.user.UpdateProfile(name, email); err != nil {
+		return err
+	}
+
+	// 记录领域事件
+	a.events.AddEvent(NewUserUpdatedEvent(
+		a.user.ID(),
+		a.user.Email().String(),
+		a.user.Name().String(),
+	))
+
+	return nil
 }
 
 // ChangePassword 更改密码
 func (a *UserAggregate) ChangePassword(hashedPassword HashedPassword) error {
+	// 密码变更不记录详细事件（出于安全考虑），但可以记录审计日志
 	return a.user.ChangePassword(hashedPassword)
 }
 
@@ -108,4 +135,19 @@ func (a *UserAggregate) IsActive() bool {
 // IsBanned 检查是否被封禁
 func (a *UserAggregate) IsBanned() bool {
 	return a.user.IsBanned()
+}
+
+// Events 返回聚合根中发生的所有领域事件
+func (a *UserAggregate) Events() []DomainEvent {
+	return a.events.Events()
+}
+
+// ClearEvents 清除已发布的事件
+func (a *UserAggregate) ClearEvents() {
+	a.events.ClearEvents()
+}
+
+// HasEvents 检查是否有未发布的事件
+func (a *UserAggregate) HasEvents() bool {
+	return a.events.HasEvents()
 }

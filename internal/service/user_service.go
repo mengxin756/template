@@ -11,10 +11,11 @@ import (
 
 // userService 用户服务实现（应用服务层）
 type userService struct {
-	userRepo    domain.UserRepository
-	userFactory domain.UserFactory
-	taskQueue   *asynq.Queue
-	log         logger.Logger
+	userRepo       domain.UserRepository
+	userFactory    domain.UserFactory
+	taskQueue      *asynq.Queue
+	eventPublisher domain.EventPublisher
+	log            logger.Logger
 }
 
 // NewUserService 创建用户服务实例
@@ -22,13 +23,15 @@ func NewUserService(
 	userRepo domain.UserRepository,
 	userFactory domain.UserFactory,
 	taskQueue *asynq.Queue,
+	eventPublisher domain.EventPublisher,
 	log logger.Logger,
 ) domain.UserService {
 	return &userService{
-		userRepo:    userRepo,
-		userFactory: userFactory,
-		taskQueue:   taskQueue,
-		log:         log,
+		userRepo:       userRepo,
+		userFactory:    userFactory,
+		taskQueue:      taskQueue,
+		eventPublisher: eventPublisher,
+		log:            log,
 	}
 }
 
@@ -59,7 +62,17 @@ func (s *userService) Register(ctx context.Context, req *domain.CreateUserReques
 
 	user := aggregate.User()
 
-	// 4. 发送欢迎邮件任务（应用服务协调）
+	// 4. 发布领域事件（解耦业务逻辑）
+	if aggregate.HasEvents() {
+		if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
+			s.log.Warn(ctx, "failed to publish domain events", logger.F("error", err))
+			// 不阻塞主流程，只记录警告
+		}
+		// 清除已发布的事件
+		aggregate.ClearEvents()
+	}
+
+	// 5. 发送欢迎邮件任务（应用服务协调）
 	if s.taskQueue != nil {
 		s.enqueueWelcomeEmail(ctx, user.ID(), user.Email().String(), user.Name().String())
 	}
@@ -223,7 +236,17 @@ func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.St
 		return err
 	}
 
-	// 4. 发送状态变更通知任务
+	// 4. 发布领域事件（解耦业务逻辑）
+	if aggregate.HasEvents() {
+		if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
+			s.log.Warn(ctx, "failed to publish domain events", logger.F("error", err))
+			// 不阻塞主流程，只记录警告
+		}
+		// 清除已发布的事件
+		aggregate.ClearEvents()
+	}
+
+	// 5. 发送状态变更通知任务（应用服务协调）
 	if s.taskQueue != nil && oldStatus != status {
 		s.enqueueStatusChangeNotification(ctx,
 			aggregate.User().ID(),

@@ -13,6 +13,7 @@ import (
 	"example.com/classic/internal/data/store/entstore"
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler"
+	"example.com/classic/internal/infrastructure/messaging"
 	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
 	httpserver "example.com/classic/internal/server/http"
@@ -35,6 +36,9 @@ func InitHTTPServer(ctx context.Context) (*http.Server, error) {
 		// 领域服务
 		providePasswordHasher,
 		provideUserFactory,
+
+		// 基础设施层
+		provideEventPublisher,
 
 		// 仓储层
 		repository.NewUserRepository,
@@ -67,6 +71,11 @@ func providePasswordHasher() domain.PasswordHasher {
 // provideUserFactory 提供用户工厂
 func provideUserFactory(hasher domain.PasswordHasher) domain.UserFactory {
 	return domain.NewUserFactory(hasher)
+}
+
+// provideEventPublisher 提供事件发布器
+func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
+	return messaging.NewAsynqEventPublisher(taskQueue, log)
 }
 
 // provideEntClient 提供 Ent 客户端
