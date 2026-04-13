@@ -4,10 +4,21 @@ import (
 	"context"
 
 	"example.com/classic/internal/domain"
+	"example.com/classic/internal/handler/request"
 	"example.com/classic/internal/job/asynq"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 )
+
+// UserService defines the user service interface
+type UserService interface {
+	Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error)
+	GetByID(ctx context.Context, id int) (*domain.User, error)
+	Update(ctx context.Context, id int, req *request.UpdateUserRequest) (*domain.User, error)
+	Delete(ctx context.Context, id int) error
+	List(ctx context.Context, query *request.UserQuery) ([]*domain.User, int64, error)
+	ChangeStatus(ctx context.Context, id int, status domain.Status) error
+}
 
 // userService 用户服务实现（应用服务层）
 type userService struct {
@@ -18,14 +29,14 @@ type userService struct {
 	log            logger.Logger
 }
 
-// NewUserService 创建用户服务实例
+// NewUserService creates user service instance
 func NewUserService(
 	userRepo domain.UserRepository,
 	userFactory domain.UserFactory,
 	taskQueue *asynq.Queue,
 	eventPublisher domain.EventPublisher,
 	log logger.Logger,
-) domain.UserService {
+) UserService {
 	return &userService{
 		userRepo:       userRepo,
 		userFactory:    userFactory,
@@ -35,8 +46,8 @@ func NewUserService(
 	}
 }
 
-// Register 用户注册
-func (s *userService) Register(ctx context.Context, req *domain.CreateUserRequest) (*domain.User, error) {
+// Register user registration
+func (s *userService) Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error) {
 	s.log.Info(ctx, "user registration started", logger.F("email", req.Email))
 
 	// 1. 使用领域工厂创建用户聚合根（业务逻辑在领域层）
@@ -98,8 +109,8 @@ func (s *userService) GetByID(ctx context.Context, id int) (*domain.User, error)
 	return user, nil
 }
 
-// Update 更新用户
-func (s *userService) Update(ctx context.Context, id int, req *domain.UpdateUserRequest) (*domain.User, error) {
+// Update updates user
+func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUserRequest) (*domain.User, error) {
 	s.log.Info(ctx, "updating user", logger.F("user_id", id))
 
 	// 1. 获取聚合根
@@ -166,7 +177,7 @@ func (s *userService) Update(ctx context.Context, id int, req *domain.UpdateUser
 	return user, nil
 }
 
-// Delete 删除用户
+// Delete deletes user
 func (s *userService) Delete(ctx context.Context, id int) error {
 	s.log.Info(ctx, "deleting user", logger.F("user_id", id))
 
@@ -190,15 +201,25 @@ func (s *userService) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-// List 查询用户列表
-func (s *userService) List(ctx context.Context, query *domain.UserQuery) ([]*domain.User, int64, error) {
+// List queries user list
+func (s *userService) List(ctx context.Context, query *request.UserQuery) ([]*domain.User, int64, error) {
 	s.log.Debug(ctx, "listing users", logger.F("query", query))
 
-	// 验证查询参数
+	// Validate and normalize query params
 	s.normalizeQuery(query)
 
-	// 查询用户列表
-	users, total, err := s.userRepo.List(ctx, query)
+	// Convert to domain params
+	params := domain.UserListParams{
+		ID:       query.ID,
+		Name:     query.Name,
+		Email:    query.Email,
+		Status:   query.Status,
+		Page:     query.Page,
+		PageSize: query.PageSize,
+	}
+
+	// Query user list
+	users, total, err := s.userRepo.List(ctx, params)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -214,7 +235,7 @@ func (s *userService) List(ctx context.Context, query *domain.UserQuery) ([]*dom
 	return users, total, nil
 }
 
-// ChangeStatus 改变用户状态
+// ChangeStatus changes user status
 func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.Status) error {
 	s.log.Info(ctx, "changing user status", logger.F("user_id", id))
 
@@ -262,8 +283,8 @@ func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.St
 	return nil
 }
 
-// normalizeQuery 规范化查询参数
-func (s *userService) normalizeQuery(query *domain.UserQuery) {
+// normalizeQuery normalizes query parameters
+func (s *userService) normalizeQuery(query *request.UserQuery) {
 	if query.Page < 1 {
 		query.Page = 1
 	}

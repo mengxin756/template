@@ -4,33 +4,35 @@ import (
 	"strconv"
 
 	"example.com/classic/internal/domain"
+	"example.com/classic/internal/handler/request"
+	"example.com/classic/internal/service"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 	"example.com/classic/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
-// UserHandler HTTP 用户处理器
+// UserHandler HTTP user handler
 type UserHandler struct {
-	userService domain.UserService
+	userService service.UserService
 	log         logger.Logger
 }
 
-// NewUserHandler 创建用户处理器实例
-func NewUserHandler(userService domain.UserService, log logger.Logger) *UserHandler {
+// NewUserHandler creates user handler instance
+func NewUserHandler(userService service.UserService, log logger.Logger) *UserHandler {
 	return &UserHandler{
 		userService: userService,
 		log:         log,
 	}
 }
 
-// Register 用户注册
-// @Summary 用户注册
-// @Description 创建新用户账户
-// @Tags 用户管理
+// Register user registration
+// @Summary User registration
+// @Description Create new user account
+// @Tags User Management
 // @Accept json
 // @Produce json
-// @Param user body domain.CreateUserRequest true "用户注册信息"
+// @Param user body request.CreateUserRequest true "user registration info"
 // @Success 200 {object} response.Response{data=domain.User}
 // @Failure 400 {object} response.Response
 // @Failure 409 {object} response.Response
@@ -40,7 +42,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	ctx := c.Request.Context()
 	h.log.Info(ctx, "user registration request received")
 
-	var req domain.CreateUserRequest
+	var req request.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.log.Warn(ctx, "invalid request body", logger.F("error", err))
 		response.InvalidParam(c, "invalid request body: "+err.Error())
@@ -92,14 +94,14 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 	response.Success(c, user)
 }
 
-// Update 更新用户信息
-// @Summary 更新用户信息
-// @Description 更新指定用户的信息
-// @Tags 用户管理
+// Update updates user info
+// @Summary Update user info
+// @Description Update specified user's info
+// @Tags User Management
 // @Accept json
 // @Produce json
-// @Param id path int true "用户ID"
-// @Param user body domain.UpdateUserRequest true "用户更新信息"
+// @Param id path int true "User ID"
+// @Param user body request.UpdateUserRequest true "user update info"
 // @Success 200 {object} response.Response{data=domain.User}
 // @Failure 400 {object} response.Response
 // @Failure 404 {object} response.Response
@@ -117,7 +119,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var req domain.UpdateUserRequest
+	var req request.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.log.Warn(ctx, "invalid request body", logger.F("error", err))
 		response.InvalidParam(c, "invalid request body: "+err.Error())
@@ -170,17 +172,17 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	response.SuccessWithMsg(c, "user deleted successfully", nil)
 }
 
-// List 查询用户列表
-// @Summary 查询用户列表
-// @Description 分页查询用户列表，支持条件筛选
-// @Tags 用户管理
+// List queries user list
+// @Summary Query user list
+// @Description Paginated query of user list with filtering
+// @Tags User Management
 // @Accept json
 // @Produce json
-// @Param page query int false "页码" default(1)
-// @Param page_size query int false "每页大小" default(20)
-// @Param name query string false "用户姓名"
-// @Param email query string false "用户邮箱"
-// @Param status query string false "用户状态"
+// @Param page query int false "Page number" default(1)
+// @Param page_size query int false "Page size" default(20)
+// @Param name query string false "User name"
+// @Param email query string false "User email"
+// @Param status query string false "User status"
 // @Success 200 {object} response.Response{data=response.PageResponse{data=[]domain.User}}
 // @Failure 400 {object} response.Response
 // @Failure 500 {object} response.Response
@@ -188,8 +190,8 @@ func (h *UserHandler) Delete(c *gin.Context) {
 func (h *UserHandler) List(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	// 解析查询参数
-	query := &domain.UserQuery{
+	// Parse query parameters
+	query := &request.UserQuery{
 		Page:     1,
 		PageSize: 20,
 	}
@@ -233,14 +235,14 @@ func (h *UserHandler) List(c *gin.Context) {
 	response.SuccessWithPage(c, users, total, query.Page, query.PageSize)
 }
 
-// ChangeStatus 改变用户状态
-// @Summary 改变用户状态
-// @Description 改变指定用户的状态
-// @Tags 用户管理
+// ChangeStatus changes user status
+// @Summary Change user status
+// @Description Change specified user's status
+// @Tags User Management
 // @Accept json
 // @Produce json
-// @Param id path int true "用户ID"
-// @Param status body map[string]string true "状态信息"
+// @Param id path int true "User ID"
+// @Param status body request.ChangeStatusRequest true "status info"
 // @Success 200 {object} response.Response
 // @Failure 400 {object} response.Response
 // @Failure 404 {object} response.Response
@@ -257,21 +259,20 @@ func (h *UserHandler) ChangeStatus(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Status string `json:"status" binding:"required"`
-	}
+	var req request.ChangeStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.log.Warn(ctx, "invalid request body", logger.F("error", err))
 		response.InvalidParam(c, "invalid request body: "+err.Error())
 		return
 	}
 
-	status := domain.Status(req.Status)
-	if !status.IsValid() {
+	if !req.Status.IsValid() {
 		h.log.Warn(ctx, "invalid status", logger.F("status", req.Status))
 		response.InvalidParam(c, "invalid status")
 		return
 	}
+
+	status := req.Status
 
 	h.log.Info(ctx, "changing user status", logger.F("user_id", id), logger.F("status", status))
 
@@ -284,14 +285,14 @@ func (h *UserHandler) ChangeStatus(c *gin.Context) {
 	response.SuccessWithMsg(c, "user status changed successfully", nil)
 }
 
-// handleError 统一错误处理
+// handleError handles errors uniformly
 func (h *UserHandler) handleError(c *gin.Context, err error) {
 	ctx := c.Request.Context()
 
-	// 记录错误日志
+	// Log error
 	h.log.Error(ctx, "handler error", logger.F("error", err))
 
-	// 根据错误类型返回相应的响应
+	// Return appropriate response based on error type
 	if domainErr, ok := err.(*errors.Error); ok {
 		switch domainErr.Code {
 		case errors.ErrCodeInvalidParam:
@@ -312,6 +313,6 @@ func (h *UserHandler) handleError(c *gin.Context, err error) {
 		return
 	}
 
-	// 未知错误类型
+	// Unknown error type
 	response.InternalServerError(c, errors.WrapInternalError(err, "unknown error"))
 }

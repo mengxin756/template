@@ -10,13 +10,13 @@ import (
 	"example.com/classic/pkg/logger"
 )
 
-// userRepository 用户仓储实现
+// userRepository user repository implementation
 type userRepository struct {
 	client *ent.Client
 	log    logger.Logger
 }
 
-// NewUserRepository 创建用户仓储实例
+// NewUserRepository creates user repository instance
 func NewUserRepository(client *ent.Client, log logger.Logger) domain.UserRepository {
 	return &userRepository{
 		client: client,
@@ -24,11 +24,11 @@ func NewUserRepository(client *ent.Client, log logger.Logger) domain.UserReposit
 	}
 }
 
-// Create 创建用户（向后兼容）
+// Create creates user (backward compatible)
 func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	r.log.Debug(ctx, "creating user", logger.F("email", user.Email().String()))
 
-	// 检查邮箱是否已存在
+	// Check if email already exists
 	exists, err := r.ExistsByEmail(ctx, user.Email().String())
 	if err != nil {
 		return errors.WrapInternalError(err, "check email exists failed")
@@ -37,7 +37,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		return errors.ErrUserAlreadyExists
 	}
 
-	// 创建 Ent 用户
+	// Create Ent user
 	entUser, err := r.client.User.Create().
 		SetName(user.Name().String()).
 		SetEmail(user.Email().String()).
@@ -49,7 +49,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		return errors.WrapInternalError(err, "create user failed")
 	}
 
-	// 更新领域对象
+	// Update domain object
 	user.SetID(entUser.ID)
 	user.SetCreatedAt(entUser.CreatedAt)
 	user.SetUpdatedAt(entUser.UpdatedAt)
@@ -58,7 +58,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
-// GetByID 根据ID获取用户
+// GetByID gets user by ID
 func (r *userRepository) GetByID(ctx context.Context, id int) (*domain.User, error) {
 	r.log.Debug(ctx, "getting user by id", logger.F("user_id", id))
 
@@ -140,38 +140,38 @@ func (r *userRepository) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-// List 查询用户列表
-func (r *userRepository) List(ctx context.Context, query *domain.UserQuery) ([]*domain.User, int64, error) {
-	r.log.Debug(ctx, "listing users", logger.F("query", query))
+// List queries user list
+func (r *userRepository) List(ctx context.Context, params domain.UserListParams) ([]*domain.User, int64, error) {
+	r.log.Debug(ctx, "listing users", logger.F("params", params))
 
-	// 构建查询
+	// Build query
 	entQuery := r.client.User.Query()
 
-	// 添加查询条件
-	if query.ID != nil {
-		entQuery = entQuery.Where(user.IDEQ(*query.ID))
+	// Add query conditions
+	if params.ID != nil {
+		entQuery = entQuery.Where(user.IDEQ(*params.ID))
 	}
-	if query.Name != nil {
-		entQuery = entQuery.Where(user.NameContains(*query.Name))
+	if params.Name != nil {
+		entQuery = entQuery.Where(user.NameContains(*params.Name))
 	}
-	if query.Email != nil {
-		entQuery = entQuery.Where(user.EmailContains(*query.Email))
+	if params.Email != nil {
+		entQuery = entQuery.Where(user.EmailContains(*params.Email))
 	}
-	if query.Status != nil {
-		entQuery = entQuery.Where(user.StatusEQ(string(*query.Status)))
+	if params.Status != nil {
+		entQuery = entQuery.Where(user.StatusEQ(string(*params.Status)))
 	}
 
-	// 获取总数
+	// Get total count
 	total, err := entQuery.Count(ctx)
 	if err != nil {
 		r.log.Error(ctx, "count users failed", logger.F("error", err))
 		return nil, 0, errors.WrapInternalError(err, "count users failed")
 	}
 
-	// 分页查询
-	offset := (query.Page - 1) * query.PageSize
+	// Paginated query
+	offset := (params.Page - 1) * params.PageSize
 	entUsers, err := entQuery.
-		Limit(query.PageSize).
+		Limit(params.PageSize).
 		Offset(offset).
 		Order(ent.Desc(user.FieldID)).
 		All(ctx)
@@ -180,7 +180,7 @@ func (r *userRepository) List(ctx context.Context, query *domain.UserQuery) ([]*
 		return nil, 0, errors.WrapInternalError(err, "list users failed")
 	}
 
-	// 转换为领域对象
+	// Convert to domain objects
 	users := make([]*domain.User, len(entUsers))
 	for i, entUser := range entUsers {
 		domainUser, err := r.entToDomain(entUser)
@@ -224,6 +224,18 @@ func (r *userRepository) Save(ctx context.Context, aggregate *domain.UserAggrega
 // GetAggregateByID 根据ID获取聚合根
 func (r *userRepository) GetAggregateByID(ctx context.Context, id int) (*domain.UserAggregate, error) {
 	user, err := r.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 从用户实体重建聚合根
+	aggregate := domain.RebuildUserAggregate(user)
+	return aggregate, nil
+}
+
+// GetAggregateByEmail 根据邮箱获取聚合根
+func (r *userRepository) GetAggregateByEmail(ctx context.Context, email string) (*domain.UserAggregate, error) {
+	user, err := r.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
