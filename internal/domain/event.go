@@ -1,8 +1,14 @@
 package domain
 
 import (
+	"strconv"
 	"time"
 )
+
+// AggregateID generates aggregate ID from type and ID
+func AggregateID(aggregateType string, id int) string {
+	return aggregateType + "-" + strconv.Itoa(id)
+}
 
 // DomainEvent 领域事件接口
 type DomainEvent interface {
@@ -69,7 +75,7 @@ func (e *UserCreatedEvent) OccurredAt() time.Time {
 }
 
 func (e *UserCreatedEvent) AggregateID() string {
-	return "user-" + string(rune(e.UserID))
+	return AggregateID("user", e.UserID)
 }
 
 // UserUpdatedEvent 用户更新事件
@@ -98,7 +104,7 @@ func (e *UserUpdatedEvent) OccurredAt() time.Time {
 }
 
 func (e *UserUpdatedEvent) AggregateID() string {
-	return "user-" + string(rune(e.UserID))
+	return AggregateID("user", e.UserID)
 }
 
 // UserStatusChangedEvent 用户状态变更事件
@@ -131,7 +137,7 @@ func (e *UserStatusChangedEvent) OccurredAt() time.Time {
 }
 
 func (e *UserStatusChangedEvent) AggregateID() string {
-	return "user-" + string(rune(e.UserID))
+	return AggregateID("user", e.UserID)
 }
 
 // UserDeletedEvent 用户删除事件
@@ -160,5 +166,5 @@ func (e *UserDeletedEvent) OccurredAt() time.Time {
 }
 
 func (e *UserDeletedEvent) AggregateID() string {
-	return "user-" + string(rune(e.UserID))
+	return AggregateID("user", e.UserID)
 }
