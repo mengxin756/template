@@ -4,13 +4,15 @@ package wire
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 
 	"github.com/google/wire"
 
 	"example.com/classic/internal/config"
-	"example.com/classic/internal/data/ent"
-	"example.com/classic/internal/data/store/entstore"
+	"example.com/classic/internal/data"
+	"example.com/classic/internal/data/db"
+	"example.com/classic/internal/data/store/sqlstore"
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler"
 	"example.com/classic/internal/infrastructure/messaging"
@@ -21,69 +23,90 @@ import (
 	"example.com/classic/pkg/logger"
 )
 
-// InitHTTPServer 返回完整的 HTTP Server
+// InitHTTPServer initializes HTTP Server
 func InitHTTPServer(ctx context.Context) (*http.Server, error) {
 	wire.Build(
-		// 配置和日志
+		// Config and logger
 		config.Load,
 		provideLogger,
 
-		// 数据层
-		entstore.New,
-		provideEntClient,
+		// Data layer (sqlc)
+		sqlstore.New,
+		provideSQLDB,
+		provideDBTX,
+
+		// Task queue
 		asynq.New,
 
-		// 领域服务
+		// Transaction manager
+		provideTransactionManager,
+
+		// Domain services
 		providePasswordHasher,
 		provideUserFactory,
 
-		// 基础设施层
+		// Infrastructure layer
 		provideEventPublisher,
 
-		// 仓储层
-		repository.NewUserRepository,
+		// Repository layer (sqlc)
+		provideUserRepository,
 
-		// 服务层
+		// Service layer
 		service.NewUserService,
 
-		// 处理器层
+		// Handler layer
 		handler.NewUserHandler,
 
-		// HTTP 服务器
+		// HTTP server
 		httpserver.NewServer,
 		provideHTTPServer,
 	)
 	return nil, nil
 }
 
-// provideLogger 提供日志实例
+// provideLogger provides logger instance
 func provideLogger(cfg *config.Config) logger.Logger {
 	log := logger.New(cfg.Service, cfg.Log.Level, cfg.IsDevelopment())
 	logger.SetGlobalLogger(log)
 	return log
 }
 
-// providePasswordHasher 提供密码哈希器
+// providePasswordHasher provides password hasher
 func providePasswordHasher() domain.PasswordHasher {
 	return domain.NewBcryptPasswordHasher()
 }
 
-// provideUserFactory 提供用户工厂
+// provideUserFactory provides user factory
 func provideUserFactory(hasher domain.PasswordHasher) domain.UserFactory {
 	return domain.NewUserFactory(hasher)
 }
 
-// provideEventPublisher 提供事件发布器
+// provideEventPublisher provides event publisher
 func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
 	return messaging.NewAsynqEventPublisher(taskQueue, log)
 }
 
-// provideEntClient 提供 Ent 客户端
-func provideEntClient(store *entstore.Store) *ent.Client {
-	return store.Client
+// provideSQLDB provides sql.DB
+func provideSQLDB(store *sqlstore.Store) *sql.DB {
+	return store.DB
 }
 
-// provideHTTPServer 提供 HTTP 服务器
+// provideDBTX provides DBTX interface for sqlc
+func provideDBTX(sqldb *sql.DB) db.DBTX {
+	return sqldb
+}
+
+// provideTransactionManager provides transaction manager
+func provideTransactionManager(sqldb *sql.DB, log logger.Logger) domain.TransactionManager {
+	return data.NewTransactionManager(sqldb, log)
+}
+
+// provideUserRepository provides user repository using sqlc
+func provideUserRepository(dbtx db.DBTX, log logger.Logger) domain.UserRepository {
+	return repository.NewUserRepositorySQLC(dbtx, log)
+}
+
+// provideHTTPServer provides HTTP server
 func provideHTTPServer(server *httpserver.Server) *http.Server {
 	return server.GetHTTPServer()
 }

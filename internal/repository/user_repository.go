@@ -24,9 +24,19 @@ func NewUserRepository(client *ent.Client, log logger.Logger) domain.UserReposit
 	}
 }
 
+// getClient returns the appropriate client (transactional or regular)
+func (r *userRepository) getClient(ctx context.Context) *ent.Client {
+	if tx, ok := domain.TxFromContext(ctx).(*ent.Tx); ok && tx != nil {
+		return tx.Client()
+	}
+	return r.client
+}
+
 // Create creates user (backward compatible)
 func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	r.log.Debug(ctx, "creating user", logger.F("email", user.Email().String()))
+
+	client := r.getClient(ctx)
 
 	// Check if email already exists
 	exists, err := r.ExistsByEmail(ctx, user.Email().String())
@@ -38,7 +48,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	}
 
 	// Create Ent user
-	entUser, err := r.client.User.Create().
+	entUser, err := client.User.Create().
 		SetName(user.Name().String()).
 		SetEmail(user.Email().String()).
 		SetPassword(user.GetHashedPassword()).
@@ -62,7 +72,8 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 func (r *userRepository) GetByID(ctx context.Context, id int) (*domain.User, error) {
 	r.log.Debug(ctx, "getting user by id", logger.F("user_id", id))
 
-	entUser, err := r.client.User.Get(ctx, id)
+	client := r.getClient(ctx)
+	entUser, err := client.User.Get(ctx, id)
 	if err != nil {
 		if ent.IsNotFound(err) {
 			return nil, errors.ErrUserNotFound
@@ -74,11 +85,12 @@ func (r *userRepository) GetByID(ctx context.Context, id int) (*domain.User, err
 	return r.entToDomain(entUser)
 }
 
-// GetByEmail 根据邮箱获取用户
+// GetByEmail gets user by email
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	r.log.Debug(ctx, "getting user by email", logger.F("email", email))
 
-	entUser, err := r.client.User.Query().
+	client := r.getClient(ctx)
+	entUser, err := client.User.Query().
 		Where(user.EmailEQ(email)).
 		Only(ctx)
 	if err != nil {
@@ -92,18 +104,20 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.
 	return r.entToDomain(entUser)
 }
 
-// Update 更新用户
+// Update updates user
 func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 	r.log.Debug(ctx, "updating user", logger.F("user_id", user.ID()))
 
-	// 检查用户是否存在
+	client := r.getClient(ctx)
+
+	// Check if user exists
 	_, err := r.GetByID(ctx, user.ID())
 	if err != nil {
 		return err
 	}
 
-	// 更新 Ent 用户
-	entUser, err := r.client.User.UpdateOneID(user.ID()).
+	// Update Ent user
+	entUser, err := client.User.UpdateOneID(user.ID()).
 		SetName(user.Name().String()).
 		SetEmail(user.Email().String()).
 		SetStatus(string(user.Status())).
@@ -119,18 +133,20 @@ func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
-// Delete 删除用户
+// Delete deletes user
 func (r *userRepository) Delete(ctx context.Context, id int) error {
 	r.log.Debug(ctx, "deleting user", logger.F("user_id", id))
 
-	// 检查用户是否存在
+	client := r.getClient(ctx)
+
+	// Check if user exists
 	_, err := r.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// 删除用户
-	err = r.client.User.DeleteOneID(id).Exec(ctx)
+	// Delete user
+	err = client.User.DeleteOneID(id).Exec(ctx)
 	if err != nil {
 		r.log.Error(ctx, "delete user failed", logger.F("error", err), logger.F("user_id", id))
 		return errors.WrapInternalError(err, "delete user failed")
@@ -144,8 +160,10 @@ func (r *userRepository) Delete(ctx context.Context, id int) error {
 func (r *userRepository) List(ctx context.Context, params domain.UserListParams) ([]*domain.User, int64, error) {
 	r.log.Debug(ctx, "listing users", logger.F("params", params))
 
+	client := r.getClient(ctx)
+
 	// Build query
-	entQuery := r.client.User.Query()
+	entQuery := client.User.Query()
 
 	// Add query conditions
 	if params.ID != nil {
@@ -196,9 +214,10 @@ func (r *userRepository) List(ctx context.Context, params domain.UserListParams)
 	return users, int64(total), nil
 }
 
-// ExistsByEmail 检查邮箱是否存在
+// ExistsByEmail checks if email exists
 func (r *userRepository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
-	exists, err := r.client.User.Query().
+	client := r.getClient(ctx)
+	exists, err := client.User.Query().
 		Where(user.EmailEQ(email)).
 		Exist(ctx)
 	if err != nil {
@@ -208,44 +227,44 @@ func (r *userRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 	return exists, nil
 }
 
-// Save 保存聚合根
+// Save saves aggregate root
 func (r *userRepository) Save(ctx context.Context, aggregate *domain.UserAggregate) error {
 	user := aggregate.User()
 
 	if user.ID() == 0 {
-		// 新增
+		// Create new
 		return r.Create(ctx, user)
 	}
 
-	// 更新
+	// Update existing
 	return r.Update(ctx, user)
 }
 
-// GetAggregateByID 根据ID获取聚合根
+// GetAggregateByID gets aggregate by ID
 func (r *userRepository) GetAggregateByID(ctx context.Context, id int) (*domain.UserAggregate, error) {
 	user, err := r.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// 从用户实体重建聚合根
+	// Rebuild aggregate from user entity
 	aggregate := domain.RebuildUserAggregate(user)
 	return aggregate, nil
 }
 
-// GetAggregateByEmail 根据邮箱获取聚合根
+// GetAggregateByEmail gets aggregate by email
 func (r *userRepository) GetAggregateByEmail(ctx context.Context, email string) (*domain.UserAggregate, error) {
 	user, err := r.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
 
-	// 从用户实体重建聚合根
+	// Rebuild aggregate from user entity
 	aggregate := domain.RebuildUserAggregate(user)
 	return aggregate, nil
 }
 
-// entToDomain 将 Ent 用户转换为领域用户
+// entToDomain converts Ent user to domain user
 func (r *userRepository) entToDomain(entUser *ent.User) (*domain.User, error) {
 	status := domain.Status(entUser.Status)
 	if !status.IsValid() {

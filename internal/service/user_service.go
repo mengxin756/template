@@ -20,19 +20,21 @@ type UserService interface {
 	ChangeStatus(ctx context.Context, id int, status domain.Status) error
 }
 
-// userService 用户服务实现（应用服务层）
+// userService user service implementation (application service layer)
 type userService struct {
-	userRepo       domain.UserRepository
-	userFactory    domain.UserFactory
-	taskQueue      *asynq.Queue
-	eventPublisher domain.EventPublisher
-	log            logger.Logger
+	userRepo          domain.UserRepository
+	userFactory       domain.UserFactory
+	txManager         domain.TransactionManager
+	taskQueue         *asynq.Queue
+	eventPublisher    domain.EventPublisher
+	log               logger.Logger
 }
 
 // NewUserService creates user service instance
 func NewUserService(
 	userRepo domain.UserRepository,
 	userFactory domain.UserFactory,
+	txManager domain.TransactionManager,
 	taskQueue *asynq.Queue,
 	eventPublisher domain.EventPublisher,
 	log logger.Logger,
@@ -40,6 +42,7 @@ func NewUserService(
 	return &userService{
 		userRepo:       userRepo,
 		userFactory:    userFactory,
+		txManager:      txManager,
 		taskQueue:      taskQueue,
 		eventPublisher: eventPublisher,
 		log:            log,
@@ -50,40 +53,51 @@ func NewUserService(
 func (s *userService) Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error) {
 	s.log.Info(ctx, "user registration started", logger.F("email", req.Email))
 
-	// 1. 使用领域工厂创建用户聚合根（业务逻辑在领域层）
-	aggregate, err := s.userFactory.CreateNewUser(req.Name, req.Email, req.Password)
-	if err != nil {
-		s.log.Warn(ctx, "failed to create user aggregate", logger.F("error", err))
-		return nil, errors.New(errors.ErrCodeInvalidParam, err.Error())
-	}
+	var user *domain.User
 
-	// 2. 检查邮箱唯一性（应用服务协调）
-	exists, err := s.userRepo.ExistsByEmail(ctx, req.Email)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, errors.ErrUserAlreadyExists
-	}
-
-	// 3. 持久化聚合根
-	if err := s.userRepo.Save(ctx, aggregate); err != nil {
-		return nil, err
-	}
-
-	user := aggregate.User()
-
-	// 4. 发布领域事件（解耦业务逻辑）
-	if aggregate.HasEvents() {
-		if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
-			s.log.Warn(ctx, "failed to publish domain events", logger.F("error", err))
-			// 不阻塞主流程，只记录警告
+	// Execute within transaction
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		// 1. Use domain factory to create user aggregate (business logic in domain layer)
+		aggregate, err := s.userFactory.CreateNewUser(req.Name, req.Email, req.Password)
+		if err != nil {
+			s.log.Warn(ctx, "failed to create user aggregate", logger.F("error", err))
+			return errors.New(errors.ErrCodeInvalidParam, err.Error())
 		}
-		// 清除已发布的事件
-		aggregate.ClearEvents()
+
+		// 2. Check email uniqueness (application service coordination)
+		exists, err := s.userRepo.ExistsByEmail(txCtx, req.Email)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return errors.ErrUserAlreadyExists
+		}
+
+		// 3. Persist aggregate
+		if err := s.userRepo.Save(txCtx, aggregate); err != nil {
+			return err
+		}
+
+		user = aggregate.User()
+
+		// 4. Publish domain events (decoupled business logic)
+		if aggregate.HasEvents() {
+			if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
+				s.log.Warn(ctx, "failed to publish domain events", logger.F("error", err))
+				// Don't block main flow, just log warning
+			}
+			// Clear published events
+			aggregate.ClearEvents()
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	// 5. 发送欢迎邮件任务（应用服务协调）
+	// 5. Send welcome email task (application service coordination) - outside transaction
 	if s.taskQueue != nil {
 		s.enqueueWelcomeEmail(ctx, user.ID(), user.Email().String(), user.Name().String())
 	}

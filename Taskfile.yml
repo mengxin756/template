@@ -1,7 +1,11 @@
 version: '3'
 tasks:
+  gen:sqlc:
+    desc: Generate sqlc code
+    cmds:
+      - sqlc generate
   gen:ent:
-    desc: Generate ent code
+    desc: Generate ent code (deprecated, use gen:sqlc)
     cmds:
       - go run entgo.io/ent/cmd/ent generate ./internal/data/ent/schema
   run:api:

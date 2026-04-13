@@ -82,6 +82,24 @@ func (m *MockUserRepository) ExistsByEmail(ctx context.Context, email string) (b
 	return args.Bool(0), args.Error(1)
 }
 
+// MockTransactionManager mock transaction manager
+type MockTransactionManager struct {
+	mock.Mock
+}
+
+func (m *MockTransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	args := m.Called(ctx, fn)
+	return args.Error(0)
+}
+
+func (m *MockTransactionManager) WithTransactionResult(ctx context.Context, fn func(ctx context.Context) (interface{}, error)) (interface{}, error) {
+	args := m.Called(ctx, fn)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0), args.Error(1)
+}
+
 func TestUserService_Register(t *testing.T) {
 	// Test cases
 	tests := []struct {
@@ -124,10 +142,16 @@ func TestUserService_Register(t *testing.T) {
 			// Create mock repository and factory for each test case
 			mockRepo := new(MockUserRepository)
 			mockFactory := new(MockUserFactory)
+			mockTxManager := new(MockTransactionManager)
 			log := logger.New("test", "debug", true)
 
 			// Create service instance (pass nil as task queue to avoid complexity)
-			svc := NewUserService(mockRepo, mockFactory, nil, nil, log)
+			svc := NewUserService(mockRepo, mockFactory, mockTxManager, nil, nil, log)
+
+			// Setup transaction manager mock - execute the function directly
+			mockTxManager.On("WithTransaction", mock.Anything, mock.Anything).Return(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				return fn(ctx)
+			}).Once()
 
 			// Setup mock behavior
 			tt.setup(mockRepo, mockFactory)
@@ -153,8 +177,9 @@ func TestUserService_Register(t *testing.T) {
 
 func TestUserService_GetByID(t *testing.T) {
 	mockRepo := new(MockUserRepository)
+	mockTxManager := new(MockTransactionManager)
 	log := logger.New("test", "debug", true)
-	svc := NewUserService(mockRepo, nil, nil, nil, log)
+	svc := NewUserService(mockRepo, nil, mockTxManager, nil, nil, log)
 
 	// Setup mock behavior
 	mockRepo.On("GetByID", mock.Anything, 1).Return(createTestUser(1, "Test User", "test@example.com"), nil)
@@ -171,8 +196,9 @@ func TestUserService_GetByID(t *testing.T) {
 
 func TestUserService_Update(t *testing.T) {
 	mockRepo := new(MockUserRepository)
+	mockTxManager := new(MockTransactionManager)
 	log := logger.New("test", "debug", true)
-	svc := NewUserService(mockRepo, nil, nil, nil, log)
+	svc := NewUserService(mockRepo, nil, mockTxManager, nil, nil, log)
 
 	// Update request
 	newName := "New Name"
