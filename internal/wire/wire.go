@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/wire"
 
+	"example.com/classic/api/grpc/pb"
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data"
 	"example.com/classic/internal/data/db"
@@ -18,6 +19,7 @@ import (
 	"example.com/classic/internal/infrastructure/messaging"
 	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
+	grpcserver "example.com/classic/internal/server/grpc"
 	httpserver "example.com/classic/internal/server/http"
 	"example.com/classic/internal/service"
 	"example.com/classic/pkg/logger"
@@ -64,6 +66,46 @@ func InitHTTPServer(ctx context.Context) (*http.Server, error) {
 	return nil, nil
 }
 
+// InitGRPCServer initializes gRPC Server
+func InitGRPCServer(ctx context.Context) (*grpcserver.Server, error) {
+	wire.Build(
+		// Config and logger
+		config.Load,
+		provideLogger,
+
+		// Data layer (sqlc)
+		sqlstore.New,
+		provideSQLDB,
+		provideDBTX,
+
+		// Task queue
+		asynq.New,
+
+		// Transaction manager
+		provideTransactionManager,
+
+		// Domain services
+		providePasswordHasher,
+		provideUserFactory,
+
+		// Infrastructure layer
+		provideEventPublisher,
+
+		// Repository layer (sqlc)
+		provideUserRepository,
+
+		// Service layer
+		service.NewUserService,
+
+		// Handler layer
+		provideUserGRPCHandler,
+
+		// gRPC server
+		grpcserver.NewServer,
+	)
+	return nil, nil
+}
+
 // provideLogger provides logger instance
 func provideLogger(cfg *config.Config) logger.Logger {
 	log := logger.New(cfg.Service, cfg.Log.Level, cfg.IsDevelopment())
@@ -104,6 +146,11 @@ func provideTransactionManager(sqldb *sql.DB, log logger.Logger) domain.Transact
 // provideUserRepository provides user repository using sqlc
 func provideUserRepository(dbtx db.DBTX, log logger.Logger) domain.UserRepository {
 	return repository.NewUserRepositorySQLC(dbtx, log)
+}
+
+// provideUserGRPCHandler provides user gRPC handler
+func provideUserGRPCHandler(userSvc service.UserService, log logger.Logger) pb.UserServiceServer {
+	return handler.NewUserGRPCHandler(userSvc, log)
 }
 
 // provideHTTPServer provides HTTP server

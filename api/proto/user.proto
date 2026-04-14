@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "example.com/classic/api/grpc/pb";
+
+import "google/protobuf/timestamp.proto";
+
+// User service definition
+service UserService {
+  // Create a new user
+  rpc Register(RegisterRequest) returns (UserResponse);
+  
+  // Get user by ID
+  rpc GetByID(GetByIDRequest) returns (UserResponse);
+  
+  // Update user
+  rpc Update(UpdateRequest) returns (UserResponse);
+  
+  // Delete user
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  
+  // List users
+  rpc List(ListRequest) returns (ListResponse);
+  
+  // Change user status
+  rpc ChangeStatus(ChangeStatusRequest) returns (UserResponse);
+}
+
+// Status enum
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_INACTIVE = 2;
+}
+
+// Register request
+message RegisterRequest {
+  string name = 1;
+  string email = 2;
+  string password = 3;
+}
+
+// GetByID request
+message GetByIDRequest {
+  int32 id = 1;
+}
+
+// Update request
+message UpdateRequest {
+  int32 id = 1;
+  optional string name = 2;
+  optional string email = 3;
+  optional Status status = 4;
+}
+
+// Delete request
+message DeleteRequest {
+  int32 id = 1;
+}
+
+// Delete response
+message DeleteResponse {
+  bool success = 1;
+}
+
+// List request
+message ListRequest {
+  optional int32 id = 1;
+  optional string name = 2;
+  optional string email = 3;
+  optional Status status = 4;
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+// List response
+message ListResponse {
+  repeated User users = 1;
+  int64 total = 2;
+}
+
+// Change status request
+message ChangeStatusRequest {
+  int32 id = 1;
+  Status status = 2;
+}
+
+// User response
+message UserResponse {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  Status status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// User message
+message User {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  Status status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}

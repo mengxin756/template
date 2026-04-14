@@ -1,15 +1,29 @@
 version: '3'
 tasks:
+  gen:proto:
+    desc: Generate protobuf code
+    cmds:
+      - protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/proto/*.proto
   gen:sqlc:
     desc: Generate sqlc code
     cmds:
       - sqlc generate
+  gen:wire:
+    desc: Generate wire code
+    cmds:
+      - wire ./internal/wire
+  gen:all:
+    desc: Generate all code
+    cmds:
+      - task: gen:proto
+      - task: gen:sqlc
+      - task: gen:wire
   gen:ent:
     desc: Generate ent code (deprecated, use gen:sqlc)
     cmds:
       - go run entgo.io/ent/cmd/ent generate ./internal/data/ent/schema
   run:api:
-    desc: Run HTTP API
+    desc: Run HTTP and gRPC API servers
     cmds:
       - go run ./cmd/api
 

@@ -150,13 +150,24 @@ func (u *User) ClearSensitiveData() {
 	u.hashedPassword = HashedPassword{}
 }
 
-// ToDTO 转换为数据传输对象（用于兼容现有代码）
+// UserDTO is a data transfer object for user
+type UserDTO struct {
+	ID        int
+	Name      string
+	Email     string
+	Password  string
+	Status    Status
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ToDTO converts to DTO (for compatibility)
 func (u *User) ToDTO() *UserDTO {
 	return &UserDTO{
 		ID:        u.id,
 		Name:      u.name.String(),
 		Email:     u.email.String(),
-		Password:  "", // 密码不返回
+		Password:  "", // password not returned
 		Status:    u.status,
 		CreatedAt: u.createdAt,
 		UpdatedAt: u.updatedAt,

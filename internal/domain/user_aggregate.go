@@ -80,9 +80,6 @@ func (a *UserAggregate) ChangeStatus(newStatus Status) error {
 
 // UpdateProfile 更新用户资料
 func (a *UserAggregate) UpdateProfile(name Name, email Email) error {
-	oldName := a.user.Name().String()
-	oldEmail := a.user.Email().String()
-
 	if err := a.user.UpdateProfile(name, email); err != nil {
 		return err
 	}

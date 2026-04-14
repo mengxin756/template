@@ -23,8 +23,8 @@ func UserDTOFromUser(user *domain.User) *UserDTO {
 	}
 	return &UserDTO{
 		ID:        user.ID(),
-		Name:      user.Name(),
-		Email:     user.Email(),
+		Name:      user.Name().String(),
+		Email:     user.Email().String(),
 		Status:    user.Status(),
 		CreatedAt: user.CreatedAt(),
 		UpdatedAt: user.UpdatedAt(),

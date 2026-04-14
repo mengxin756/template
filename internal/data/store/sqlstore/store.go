@@ -68,8 +68,8 @@ func New(ctx context.Context, cfg *config.Config, log logger.Logger) (*Store, er
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(cfg.DB.MaxOpenConns)
-	db.SetMaxIdleConns(cfg.DB.MaxIdleConns)
+	db.SetMaxOpenConns(cfg.DB.MaxOpen)
+	db.SetMaxIdleConns(cfg.DB.MaxIdle)
 
 	// Test connection
 	if err := db.PingContext(ctx); err != nil {

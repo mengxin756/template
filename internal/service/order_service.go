@@ -271,7 +271,7 @@ func (s *orderServiceImpl) PayOrderWithMixed(ctx context.Context, req *MixedPaym
 		return err
 	}
 
-	pointsAggregate, err := s.pointsRepo.GetAggregateByUserID(ctx, req.UserID)
+	pointsAggregate, err := s.pointsRepo.GetByUserID(ctx, req.UserID)
 	if err != nil {
 		return err
 	}
@@ -441,7 +441,7 @@ func (s *orderServiceImpl) generateOrderNo() string {
 
 func (s *orderServiceImpl) publishEvents(ctx context.Context, aggregate interface{ Events() []domain.DomainEvent }) {
 	for _, event := range aggregate.Events() {
-		if err := s.eventPublisher.Publish(ctx, event); err != nil {
+		if err := s.eventPublisher.Publish(event); err != nil {
 			s.log.Error(ctx, "failed to publish event", logger.F("event_type", event.EventType()), logger.F("error", err))
 		}
 	}
@@ -454,7 +454,7 @@ func (s *orderServiceImpl) earnPointsAfterPayment(ctx context.Context, orderAggr
 		return err
 	}
 
-	pointsAggregate, err := s.pointsRepo.GetAggregateByUserID(ctx, userID)
+	pointsAggregate, err := s.pointsRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
 	}

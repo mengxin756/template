@@ -8,13 +8,18 @@ package wire
 
 import (
 	"context"
+	"database/sql"
+	"example.com/classic/api/grpc/pb"
 	"example.com/classic/internal/config"
-	"example.com/classic/internal/data/ent"
-	"example.com/classic/internal/data/store/entstore"
+	"example.com/classic/internal/data"
+	"example.com/classic/internal/data/db"
+	"example.com/classic/internal/data/store/sqlstore"
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler"
+	"example.com/classic/internal/infrastructure/messaging"
 	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
+	"example.com/classic/internal/server/grpc"
 	http2 "example.com/classic/internal/server/http"
 	"example.com/classic/internal/service"
 	"example.com/classic/pkg/logger"
@@ -23,57 +28,113 @@ import (
 
 // Injectors from wire.go:
 
-// InitHTTPServer 返回完整的 HTTP Server
+// InitHTTPServer initializes HTTP Server
 func InitHTTPServer(ctx context.Context) (*http.Server, error) {
 	configConfig, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
 	logger := provideLogger(configConfig)
-	store, err := entstore.New(ctx, configConfig, logger)
+	store, err := sqlstore.New(ctx, configConfig, logger)
 	if err != nil {
 		return nil, err
 	}
-	client := provideEntClient(store)
-	userRepository := repository.NewUserRepository(client, logger)
+	db := provideSQLDB(store)
+	dbtx := provideDBTX(db)
+	userRepository := provideUserRepository(dbtx, logger)
 	passwordHasher := providePasswordHasher()
 	userFactory := provideUserFactory(passwordHasher)
+	transactionManager := provideTransactionManager(db, logger)
 	queue, err := asynq.New(configConfig, logger)
 	if err != nil {
 		return nil, err
 	}
-	userService := service.NewUserService(userRepository, userFactory, queue, logger)
+	eventPublisher := provideEventPublisher(queue, logger)
+	userService := service.NewUserService(userRepository, userFactory, transactionManager, queue, eventPublisher, logger)
 	userHandler := handler.NewUserHandler(userService, logger)
 	server := http2.NewServer(configConfig, logger, userHandler)
 	httpServer := provideHTTPServer(server)
 	return httpServer, nil
 }
 
+// InitGRPCServer initializes gRPC Server
+func InitGRPCServer(ctx context.Context) (*grpc.Server, error) {
+	configConfig, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	logger := provideLogger(configConfig)
+	store, err := sqlstore.New(ctx, configConfig, logger)
+	if err != nil {
+		return nil, err
+	}
+	db := provideSQLDB(store)
+	dbtx := provideDBTX(db)
+	userRepository := provideUserRepository(dbtx, logger)
+	passwordHasher := providePasswordHasher()
+	userFactory := provideUserFactory(passwordHasher)
+	transactionManager := provideTransactionManager(db, logger)
+	queue, err := asynq.New(configConfig, logger)
+	if err != nil {
+		return nil, err
+	}
+	eventPublisher := provideEventPublisher(queue, logger)
+	userService := service.NewUserService(userRepository, userFactory, transactionManager, queue, eventPublisher, logger)
+	userServiceServer := provideUserGRPCHandler(userService, logger)
+	server := grpc.NewServer(configConfig, logger, userServiceServer)
+	return server, nil
+}
+
 // wire.go:
 
-// provideLogger 提供日志实例
+// provideLogger provides logger instance
 func provideLogger(cfg *config.Config) logger.Logger {
 	log := logger.New(cfg.Service, cfg.Log.Level, cfg.IsDevelopment())
 	logger.SetGlobalLogger(log)
 	return log
 }
 
-// providePasswordHasher 提供密码哈希器
+// providePasswordHasher provides password hasher
 func providePasswordHasher() domain.PasswordHasher {
 	return domain.NewBcryptPasswordHasher()
 }
 
-// provideUserFactory 提供用户工厂
+// provideUserFactory provides user factory
 func provideUserFactory(hasher domain.PasswordHasher) domain.UserFactory {
 	return domain.NewUserFactory(hasher)
 }
 
-// provideEntClient 提供 Ent 客户端
-func provideEntClient(store *entstore.Store) *ent.Client {
-	return store.Client
+// provideEventPublisher provides event publisher
+func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
+	return messaging.NewAsynqEventPublisher(taskQueue, log)
 }
 
-// provideHTTPServer 提供 HTTP 服务器
+// provideSQLDB provides sql.DB
+func provideSQLDB(store *sqlstore.Store) *sql.DB {
+	return store.DB
+}
+
+// provideDBTX provides DBTX interface for sqlc
+func provideDBTX(sqldb *sql.DB) db.DBTX {
+	return sqldb
+}
+
+// provideTransactionManager provides transaction manager
+func provideTransactionManager(sqldb *sql.DB, log logger.Logger) domain.TransactionManager {
+	return data.NewTransactionManager(sqldb, log)
+}
+
+// provideUserRepository provides user repository using sqlc
+func provideUserRepository(dbtx db.DBTX, log logger.Logger) domain.UserRepository {
+	return repository.NewUserRepositorySQLC(dbtx, log)
+}
+
+// provideUserGRPCHandler provides user gRPC handler
+func provideUserGRPCHandler(userSvc service.UserService, log logger.Logger) pb.UserServiceServer {
+	return handler.NewUserGRPCHandler(userSvc, log)
+}
+
+// provideHTTPServer provides HTTP server
 func provideHTTPServer(server *http2.Server) *http.Server {
 	return server.GetHTTPServer()
 }

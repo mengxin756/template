@@ -29,6 +29,14 @@ type HTTPConfig struct {
 	EnableHealth   bool          `mapstructure:"enable_health"`
 }
 
+// GRPCConfig gRPC 服务配置
+type GRPCConfig struct {
+	Port            int           `mapstructure:"port"`
+	EnableReflection bool         `mapstructure:"enable_reflection"`
+	MaxRecvMsgSize  int           `mapstructure:"max_recv_msg_size"`
+	MaxSendMsgSize  int           `mapstructure:"max_send_msg_size"`
+}
+
 // LogConfig 日志配置
 type LogConfig struct {
 	Level       string `mapstructure:"level"`
@@ -101,6 +109,7 @@ type Config struct {
 	Service     string      `mapstructure:"service"`
 	Version     string      `mapstructure:"version"`
 	HTTP        HTTPConfig  `mapstructure:"http"`
+	GRPC        GRPCConfig  `mapstructure:"grpc"`
 	Log         LogConfig   `mapstructure:"log"`
 	DB          DBConfig    `mapstructure:"db"`
 	Redis       RedisConfig `mapstructure:"redis"`
@@ -163,6 +172,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http.enable_cors", true)
 	v.SetDefault("http.enable_metrics", true)
 	v.SetDefault("http.enable_health", true)
+
+	// gRPC 配置
+	v.SetDefault("grpc.port", 9090)
+	v.SetDefault("grpc.enable_reflection", true)
+	v.SetDefault("grpc.max_recv_msg_size", 10485760)
+	v.SetDefault("grpc.max_send_msg_size", 10485760)
 
 	// 日志配置
 	v.SetDefault("log.level", "info")

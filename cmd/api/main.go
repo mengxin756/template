@@ -14,36 +14,51 @@ import (
 )
 
 func main() {
-	// 使用 Wire 注入获取所有依赖
-	server, cfg, log, err := wire.InitHTTPServer(context.Background())
+	ctx := context.Background()
+
+	// Initialize HTTP server
+	httpServer, err := wire.InitHTTPServer(ctx)
 	if err != nil {
-		panic(fmt.Errorf("wire init: %w", err))
+		panic(fmt.Errorf("init http server: %w", err))
 	}
-	defer func() { _ = log.Sync() }()
 
-	// 设置全局日志
-	logger.SetGlobalLogger(log)
+	// Initialize gRPC server
+	grpcServer, err := wire.InitGRPCServer(ctx)
+	if err != nil {
+		panic(fmt.Errorf("init grpc server: %w", err))
+	}
 
-	// 启动 HTTP 服务器
+	// Start HTTP server
 	go func() {
-		log.Info(context.Background(), "HTTP server starting", logger.F("addr", cfg.HTTP.Address))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error(context.Background(), "HTTP server error", logger.F("error", err))
+		logger.Info(ctx, "HTTP server starting", logger.F("addr", ":8080"))
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error(ctx, "HTTP server error", logger.F("error", err))
 		}
 	}()
 
-	// 优雅退出
+	// Start gRPC server
+	if err := grpcServer.Start(ctx); err != nil {
+		logger.Error(ctx, "gRPC server error", logger.F("error", err))
+	}
+
+	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Info(context.Background(), "shutting down...")
+	logger.Info(ctx, "shutting down...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
-	if err := server.Shutdown(ctx); err != nil {
-		log.Error(context.Background(), "server shutdown error", logger.F("error", err))
+
+	// Shutdown HTTP server
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "HTTP server shutdown error", logger.F("error", err))
 	}
-	
-	log.Info(context.Background(), "server exited")
+
+	// Shutdown gRPC server
+	if err := grpcServer.Stop(shutdownCtx); err != nil {
+		logger.Error(ctx, "gRPC server shutdown error", logger.F("error", err))
+	}
+
+	logger.Info(ctx, "servers exited")
 }

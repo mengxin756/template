@@ -1,4 +1,4 @@
-//go:build !entgen
+//go:build ignore
 
 package entstore
 
@@ -19,7 +19,7 @@ import (
 
 // Store 数据存储
 type Store struct {
-	Client interface{ QueryContext(ctx context.Context, query string, args ...interface{}) error }
+	Client *ent.Client
 	config *config.Config
 	log    logger.Logger
 }
@@ -153,5 +153,6 @@ func (s *Store) Close() error {
 
 // Ping 检查数据库连接
 func (s *Store) Ping(ctx context.Context) error {
-	return s.Client.QueryContext(ctx, "SELECT 1").Err()
+	_, err := s.Client.QueryContext(ctx, "SELECT 1")
+	return err
 }
