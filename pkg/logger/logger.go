@@ -15,6 +15,7 @@ type Logger interface {
 	Info(ctx context.Context, msg string, fields ...Field)
 	Warn(ctx context.Context, msg string, fields ...Field)
 	Error(ctx context.Context, msg string, fields ...Field)
+	Fatal(ctx context.Context, msg string, fields ...Field) // 添加 Fatal 级别
 	Panic(ctx context.Context, msg string, fields ...Field)
 	WithContext(ctx context.Context) Logger
 	With(fields ...Field) Logger
@@ -27,9 +28,52 @@ type Field struct {
 	Value interface{}
 }
 
-// F 创建日志字段
+// F 创建日志字段 (通用，优先使用类型安全函数)
 func F(key string, value interface{}) Field {
 	return Field{Key: key, Value: value}
+}
+
+// String 创建字符串字段
+func String(key, value string) Field {
+	return Field{Key: key, Value: value}
+}
+
+// Int 创建整数字段
+func Int(key string, value int) Field {
+	return Field{Key: key, Value: value}
+}
+
+// Int64 创建 int64 字段
+func Int64(key string, value int64) Field {
+	return Field{Key: key, Value: value}
+}
+
+// Float64 创建 float64 字段
+func Float64(key string, value float64) Field {
+	return Field{Key: key, Value: value}
+}
+
+// Bool 创建布尔字段
+func Bool(key string, value bool) Field {
+	return Field{Key: key, Value: value}
+}
+
+// Err 创建错误字段
+func Err(err error) Field {
+	if err == nil {
+		return Field{Key: "error", Value: nil}
+	}
+	return Field{Key: "error", Value: err.Error()}
+}
+
+// Duration 创建时间间隔字段
+func Duration(key string, value time.Duration) Field {
+	return Field{Key: key, Value: value.String()}
+}
+
+// Time 创建时间字段
+func Time(key string, value time.Time) Field {
+	return Field{Key: key, Value: value.Format(time.RFC3339)}
 }
 
 // traceIDHook 从 context 中提取 trace_id 并添加到日志
@@ -61,6 +105,8 @@ func New(service string, level string, isDevelopment bool) Logger {
 		logLevel = zerolog.WarnLevel
 	case "error":
 		logLevel = zerolog.ErrorLevel
+	case "fatal":
+		logLevel = zerolog.FatalLevel
 	case "panic":
 		logLevel = zerolog.PanicLevel
 	}
@@ -139,6 +185,18 @@ func (l *logger) Error(ctx context.Context, msg string, fields ...Field) {
 	event.Msg(msg)
 }
 
+// Fatal 致命错误日志 (调用后程序退出)
+func (l *logger) Fatal(ctx context.Context, msg string, fields ...Field) {
+	event := l.log.Fatal()
+	if ctx != nil {
+		event = event.Ctx(ctx)
+	}
+	for _, field := range fields {
+		event = event.Interface(field.Key, field.Value)
+	}
+	event.Msg(msg)
+}
+
 // Panic 严重错误日志
 func (l *logger) Panic(ctx context.Context, msg string, fields ...Field) {
 	event := l.log.Panic()
@@ -151,10 +209,9 @@ func (l *logger) Panic(ctx context.Context, msg string, fields ...Field) {
 	event.Msg(msg)
 }
 
-// WithContext 创建带上下文的日志实例
+// WithContext creates a logger instance bound to context
 func (l *logger) WithContext(ctx context.Context) Logger {
-	newLogger := l.log.With()
-	return &logger{log: newLogger.Logger()}
+	return &logger{log: l.log.With().Ctx(ctx).Logger()}
 }
 
 // With 添加固定字段到日志实例
@@ -208,6 +265,10 @@ func Warn(ctx context.Context, msg string, fields ...Field) {
 
 func Error(ctx context.Context, msg string, fields ...Field) {
 	GetLogger().Error(ctx, msg, fields...)
+}
+
+func Fatal(ctx context.Context, msg string, fields ...Field) {
+	GetLogger().Fatal(ctx, msg, fields...)
 }
 
 func Panic(ctx context.Context, msg string, fields ...Field) {

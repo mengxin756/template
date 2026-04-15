@@ -17,16 +17,18 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize HTTP server
-	httpServer, err := wire.InitHTTPServer(ctx)
+	httpServer, cleanupHTTP, err := wire.InitHTTPServer(ctx)
 	if err != nil {
 		panic(fmt.Errorf("init http server: %w", err))
 	}
+	defer cleanupHTTP()
 
 	// Initialize gRPC server
-	grpcServer, err := wire.InitGRPCServer(ctx)
+	grpcServer, cleanupGRPC, err := wire.InitGRPCServer(ctx)
 	if err != nil {
 		panic(fmt.Errorf("init grpc server: %w", err))
 	}
+	defer cleanupGRPC()
 
 	// Start HTTP server
 	go func() {

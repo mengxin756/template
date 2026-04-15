@@ -23,21 +23,23 @@ import (
 	http2 "example.com/classic/internal/server/http"
 	"example.com/classic/internal/service"
 	"example.com/classic/pkg/logger"
+	"github.com/google/wire"
 	"net/http"
 )
 
 // Injectors from wire.go:
 
-// InitHTTPServer initializes HTTP Server
-func InitHTTPServer(ctx context.Context) (*http.Server, error) {
+// InitHTTPServer initializes HTTP Server with cleanup function
+// Returns: HTTP server, cleanup function, error
+func InitHTTPServer(ctx context.Context) (*http.Server, func(), error) {
 	configConfig, err := config.Load()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	logger := provideLogger(configConfig)
 	store, err := sqlstore.New(ctx, configConfig, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	db := provideSQLDB(store)
 	dbtx := provideDBTX(db)
@@ -47,26 +49,28 @@ func InitHTTPServer(ctx context.Context) (*http.Server, error) {
 	transactionManager := provideTransactionManager(db, logger)
 	queue, err := asynq.New(configConfig, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	eventPublisher := provideEventPublisher(queue, logger)
 	userService := service.NewUserService(userRepository, userFactory, transactionManager, queue, eventPublisher, logger)
 	userHandler := handler.NewUserHandler(userService, logger)
 	server := http2.NewServer(configConfig, logger, userHandler)
 	httpServer := provideHTTPServer(server)
-	return httpServer, nil
+	return httpServer, func() {
+	}, nil
 }
 
-// InitGRPCServer initializes gRPC Server
-func InitGRPCServer(ctx context.Context) (*grpc.Server, error) {
+// InitGRPCServer initializes gRPC Server with cleanup function
+// Returns: gRPC server, cleanup function, error
+func InitGRPCServer(ctx context.Context) (*grpc.Server, func(), error) {
 	configConfig, err := config.Load()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	logger := provideLogger(configConfig)
 	store, err := sqlstore.New(ctx, configConfig, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	db := provideSQLDB(store)
 	dbtx := provideDBTX(db)
@@ -76,16 +80,51 @@ func InitGRPCServer(ctx context.Context) (*grpc.Server, error) {
 	transactionManager := provideTransactionManager(db, logger)
 	queue, err := asynq.New(configConfig, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	eventPublisher := provideEventPublisher(queue, logger)
 	userService := service.NewUserService(userRepository, userFactory, transactionManager, queue, eventPublisher, logger)
 	userServiceServer := provideUserGRPCHandler(userService, logger)
 	server := grpc.NewServer(configConfig, logger, userServiceServer)
-	return server, nil
+	return server, func() {
+	}, nil
 }
 
 // wire.go:
+
+var ConfigSet = wire.NewSet(config.Load)
+
+var LoggerSet = wire.NewSet(
+	provideLogger,
+)
+
+var DataLayerSet = wire.NewSet(sqlstore.New, provideSQLDB,
+	provideDBTX,
+)
+
+var TaskQueueSet = wire.NewSet(asynq.New, provideEventPublisher)
+
+var DomainSet = wire.NewSet(
+	providePasswordHasher,
+	provideUserFactory,
+	provideTransactionManager,
+)
+
+var RepositorySet = wire.NewSet(
+	provideUserRepository,
+)
+
+var ServiceSet = wire.NewSet(service.NewUserService)
+
+var HTTPHandlerSet = wire.NewSet(handler.NewUserHandler)
+
+var GRPCHandlerSet = wire.NewSet(
+	provideUserGRPCHandler,
+)
+
+var HTTPServerSet = wire.NewSet(http2.NewServer, provideHTTPServer)
+
+var GRPCServerSet = wire.NewSet(grpc.NewServer)
 
 // provideLogger provides logger instance
 func provideLogger(cfg *config.Config) logger.Logger {
@@ -102,21 +141,6 @@ func providePasswordHasher() domain.PasswordHasher {
 // provideUserFactory provides user factory
 func provideUserFactory(hasher domain.PasswordHasher) domain.UserFactory {
 	return domain.NewUserFactory(hasher)
-}
-
-// provideEventPublisher provides event publisher
-func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
-	return messaging.NewAsynqEventPublisher(taskQueue, log)
-}
-
-// provideSQLDB provides sql.DB
-func provideSQLDB(store *sqlstore.Store) *sql.DB {
-	return store.DB
-}
-
-// provideDBTX provides DBTX interface for sqlc
-func provideDBTX(sqldb *sql.DB) db.DBTX {
-	return sqldb
 }
 
 // provideTransactionManager provides transaction manager
@@ -137,4 +161,19 @@ func provideUserGRPCHandler(userSvc service.UserService, log logger.Logger) pb.U
 // provideHTTPServer provides HTTP server
 func provideHTTPServer(server *http2.Server) *http.Server {
 	return server.GetHTTPServer()
+}
+
+// provideSQLDB provides sql.DB
+func provideSQLDB(store *sqlstore.Store) *sql.DB {
+	return store.DB
+}
+
+// provideDBTX provides DBTX interface for sqlc
+func provideDBTX(sqldb *sql.DB) db.DBTX {
+	return sqldb
+}
+
+// provideEventPublisher provides event publisher
+func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
+	return messaging.NewAsynqEventPublisher(taskQueue, log)
 }

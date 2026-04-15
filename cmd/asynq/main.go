@@ -49,8 +49,8 @@ func runWorker(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	}
 
 	go func() {
-		if err := queue.Start(); err != nil {
-			log.Error(ctx, "asynq server exited with error", logger.F("error", err))
+		if err := queue.Start(ctx); err != nil {
+			log.Error(ctx, "asynq server exited with error", logger.Err(err))
 			os.Exit(1)
 		}
 	}()
@@ -58,7 +58,7 @@ func runWorker(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "asynq worker started")
 	waitForSignal()
 	log.Info(ctx, "asynq worker stopping...")
-	_ = queue.Stop()
+	_ = queue.Stop(ctx)
 	log.Info(ctx, "asynq worker stopped")
 }
 

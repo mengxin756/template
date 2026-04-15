@@ -1,10 +1,13 @@
 package messaging
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/job/asynq"
+	"example.com/classic/internal/taskqueue"
 	"example.com/classic/pkg/logger"
 )
 
@@ -15,7 +18,7 @@ type AsynqEventPublisher struct {
 }
 
 // NewAsynqEventPublisher 创建 Asynq 事件发布器
-func NewAsynqEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
+func NewAsynqEventPublisher(taskQueue taskqueue.TaskQueue, log logger.Logger) domain.EventPublisher {
 	publisher := &AsynqEventPublisher{
 		handlers: make(map[string][]domain.EventProcessor),
 		log:      log,
@@ -32,7 +35,7 @@ func NewAsynqEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.Ev
 
 // handlerBase 处理器基类
 type handlerBase struct {
-	taskQueue *asynq.Queue
+	taskQueue taskqueue.TaskQueue
 	eventType string
 }
 
@@ -45,7 +48,7 @@ type UserCreatedHandler struct {
 	*handlerBase
 }
 
-func NewUserCreatedHandler(taskQueue *asynq.Queue) domain.EventProcessor {
+func NewUserCreatedHandler(taskQueue taskqueue.TaskQueue) domain.EventProcessor {
 	return &UserCreatedHandler{
 		handlerBase: &handlerBase{
 			taskQueue: taskQueue,
@@ -56,9 +59,9 @@ func NewUserCreatedHandler(taskQueue *asynq.Queue) domain.EventProcessor {
 
 func (h *UserCreatedHandler) Process(event domain.DomainEvent) error {
 	if userEvent, ok := event.(*domain.UserCreatedEvent); ok {
-		task := asynq.NewWelcomeEmailTask(userEvent.UserID, userEvent.Email, userEvent.Name)
+		task := asynq.NewWelcomeEmailTaskV2(userEvent.UserID, userEvent.Email, userEvent.Name)
 		const delaySeconds = 10
-		if err := h.taskQueue.EnqueueDelay(delaySeconds*1000000000, task); err != nil {
+		if _, err := h.taskQueue.EnqueueIn(context.Background(), task, time.Duration(delaySeconds)*time.Second); err != nil {
 			return fmt.Errorf("failed to enqueue welcome email task: %w", err)
 		}
 		return nil
@@ -71,7 +74,7 @@ type UserStatusChangedHandler struct {
 	*handlerBase
 }
 
-func NewUserStatusChangedHandler(taskQueue *asynq.Queue) domain.EventProcessor {
+func NewUserStatusChangedHandler(taskQueue taskqueue.TaskQueue) domain.EventProcessor {
 	return &UserStatusChangedHandler{
 		handlerBase: &handlerBase{
 			taskQueue: taskQueue,
@@ -82,7 +85,7 @@ func NewUserStatusChangedHandler(taskQueue *asynq.Queue) domain.EventProcessor {
 
 func (h *UserStatusChangedHandler) Process(event domain.DomainEvent) error {
 	if userEvent, ok := event.(*domain.UserStatusChangedEvent); ok {
-		task := asynq.NewStatusChangeNotificationTask(
+		task := asynq.NewStatusChangeNotificationTaskV2(
 			userEvent.UserID,
 			userEvent.Email,
 			userEvent.Name,
@@ -90,7 +93,7 @@ func (h *UserStatusChangedHandler) Process(event domain.DomainEvent) error {
 			string(userEvent.NewStatus),
 			"system",
 		)
-		if err := h.taskQueue.Enqueue(task); err != nil {
+		if _, err := h.taskQueue.Enqueue(context.Background(), task); err != nil {
 			return fmt.Errorf("failed to enqueue status change notification task: %w", err)
 		}
 		return nil
@@ -103,7 +106,7 @@ type UserUpdatedHandler struct {
 	*handlerBase
 }
 
-func NewUserUpdatedHandler(taskQueue *asynq.Queue) domain.EventProcessor {
+func NewUserUpdatedHandler(taskQueue taskqueue.TaskQueue) domain.EventProcessor {
 	return &UserUpdatedHandler{
 		handlerBase: &handlerBase{
 			taskQueue: taskQueue,
@@ -127,7 +130,7 @@ type UserDeletedHandler struct {
 	*handlerBase
 }
 
-func NewUserDeletedHandler(taskQueue *asynq.Queue) domain.EventProcessor {
+func NewUserDeletedHandler(taskQueue taskqueue.TaskQueue) domain.EventProcessor {
 	return &UserDeletedHandler{
 		handlerBase: &handlerBase{
 			taskQueue: taskQueue,

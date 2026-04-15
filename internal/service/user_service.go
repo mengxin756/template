@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler/request"
 	"example.com/classic/internal/job/asynq"
+	"example.com/classic/internal/taskqueue"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 )
@@ -25,7 +27,7 @@ type userService struct {
 	userRepo          domain.UserRepository
 	userFactory       domain.UserFactory
 	txManager         domain.TransactionManager
-	taskQueue         *asynq.Queue
+	taskQueue         taskqueue.TaskQueue
 	eventPublisher    domain.EventPublisher
 	log               logger.Logger
 }
@@ -35,7 +37,7 @@ func NewUserService(
 	userRepo domain.UserRepository,
 	userFactory domain.UserFactory,
 	txManager domain.TransactionManager,
-	taskQueue *asynq.Queue,
+	taskQueue taskqueue.TaskQueue,
 	eventPublisher domain.EventPublisher,
 	log logger.Logger,
 ) UserService {
@@ -309,30 +311,30 @@ func (s *userService) normalizeQuery(query *request.UserQuery) {
 
 // enqueueWelcomeEmail 入队欢迎邮件任务
 func (s *userService) enqueueWelcomeEmail(ctx context.Context, userID int, email, name string) {
-	task := asynq.NewWelcomeEmailTask(userID, email, name)
+	task := asynq.NewWelcomeEmailTaskV2(userID, email, name)
 	const delaySeconds = 10
-	if err := s.taskQueue.EnqueueDelay(delaySeconds*1000000000, task); err != nil {
+	if _, err := s.taskQueue.EnqueueIn(ctx, task, time.Duration(delaySeconds)*time.Second); err != nil {
 		s.log.Warn(ctx, "failed to enqueue welcome email task",
-			logger.F("error", err),
-			logger.F("user_id", userID))
+			logger.Err(err),
+			logger.Int("user_id", userID))
 	} else {
 		s.log.Debug(ctx, "welcome email task enqueued",
-			logger.F("user_id", userID),
-			logger.F("email", email))
+			logger.Int("user_id", userID),
+			logger.String("email", email))
 	}
 }
 
 // enqueueStatusChangeNotification 入队状态变更通知任务
 func (s *userService) enqueueStatusChangeNotification(ctx context.Context, userID int, email, name, oldStatus, newStatus string) {
-	task := asynq.NewStatusChangeNotificationTask(userID, email, name, oldStatus, newStatus, "system")
-	if err := s.taskQueue.Enqueue(task); err != nil {
+	task := asynq.NewStatusChangeNotificationTaskV2(userID, email, name, oldStatus, newStatus, "system")
+	if _, err := s.taskQueue.Enqueue(ctx, task); err != nil {
 		s.log.Warn(ctx, "failed to enqueue status change notification task",
-			logger.F("error", err),
-			logger.F("user_id", userID))
+			logger.Err(err),
+			logger.Int("user_id", userID))
 	} else {
 		s.log.Debug(ctx, "status change notification task enqueued",
-			logger.F("user_id", userID),
-			logger.F("old_status", oldStatus),
-			logger.F("new_status", newStatus))
+			logger.Int("user_id", userID),
+			logger.String("old_status", oldStatus),
+			logger.String("new_status", newStatus))
 	}
 }

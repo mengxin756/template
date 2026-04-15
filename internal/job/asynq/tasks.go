@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"example.com/classic/internal/taskqueue"
 	"github.com/hibiken/asynq"
 )
 
@@ -103,4 +104,56 @@ func NewPriorityTask(taskType string, payload interface{}, priority int) *asynq.
 
 	// 注意：Asynq 的任务选项需要在入队时设置，不是在任务创建时
 	return task
+}
+
+// ========== taskqueue.Task 构造函数 (推荐使用) ==========
+
+// NewWelcomeEmailTaskV2 创建欢迎邮件任务 (返回 taskqueue.Task)
+func NewWelcomeEmailTaskV2(userID int, email, userName string) *taskqueue.Task {
+	payload := WelcomeEmailPayload{
+		UserID:    userID,
+		Email:     email,
+		UserName:  userName,
+		Timestamp: time.Now().Unix(),
+	}
+
+	data, _ := json.Marshal(payload)
+	return &taskqueue.Task{
+		Type:    TaskTypeWelcomeEmail,
+		Payload: data,
+	}
+}
+
+// NewStatusChangeNotificationTaskV2 创建状态变更通知任务 (返回 taskqueue.Task)
+func NewStatusChangeNotificationTaskV2(userID int, email, userName, oldStatus, newStatus, changedBy string) *taskqueue.Task {
+	payload := StatusChangeNotificationPayload{
+		UserID:    userID,
+		Email:     email,
+		UserName:  userName,
+		OldStatus: oldStatus,
+		NewStatus: newStatus,
+		ChangedBy: changedBy,
+		Timestamp: time.Now().Unix(),
+	}
+
+	data, _ := json.Marshal(payload)
+	return &taskqueue.Task{
+		Type:    TaskTypeStatusChangeNotification,
+		Payload: data,
+	}
+}
+
+// NewDataCleanupTaskV2 创建数据清理任务 (返回 taskqueue.Task)
+func NewDataCleanupTaskV2(cleanupType string, retention int) *taskqueue.Task {
+	payload := DataCleanupPayload{
+		CleanupType: cleanupType,
+		Retention:   retention,
+		Timestamp:   time.Now().Unix(),
+	}
+
+	data, _ := json.Marshal(payload)
+	return &taskqueue.Task{
+		Type:    TaskTypeDataCleanup,
+		Payload: data,
+	}
 }

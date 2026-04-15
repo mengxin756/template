@@ -6,11 +6,14 @@ import (
 	"time"
 
 	"example.com/classic/internal/config"
+	"example.com/classic/internal/taskqueue"
 	"example.com/classic/pkg/logger"
 	"github.com/hibiken/asynq"
 )
 
-// Queue 任务队列
+// Queue 任务队列 (实现 taskqueue.TaskQueue 接口)
+var _ taskqueue.TaskQueue = (*Queue)(nil)
+
 type Queue struct {
 	client   *asynq.Client
 	server   *asynq.Server
@@ -57,8 +60,8 @@ func New(cfg *config.Config, log logger.Logger) (*Queue, error) {
 	return queue, nil
 }
 
-// Start 启动任务队列服务器
-func (q *Queue) Start() error {
+// Start 启动任务队列服务器 (实现 taskqueue.TaskQueue 接口)
+func (q *Queue) Start(ctx context.Context) error {
 	q.log.Info(context.Background(), "starting Asynq server",
 		logger.F("concurrency", q.config.Asynq.Concurrency),
 		logger.F("redis_addr", q.config.Asynq.RedisAddr))
@@ -76,8 +79,8 @@ func (q *Queue) Start() error {
 	return q.server.Run(mux)
 }
 
-// Stop 停止任务队列服务器
-func (q *Queue) Stop() error {
+// Stop 停止任务队列服务器 (实现 taskqueue.TaskQueue 接口)
+func (q *Queue) Stop(ctx context.Context) error {
 	q.log.Info(context.Background(), "stopping Asynq server")
 
 	// 优雅关闭客户端
@@ -89,36 +92,131 @@ func (q *Queue) Stop() error {
 	return nil
 }
 
-// Enqueue 入队任务
-func (q *Queue) Enqueue(task *asynq.Task, opts ...asynq.Option) error {
-	info, err := q.client.Enqueue(task, opts...)
-	if err != nil {
-		q.log.Error(context.Background(), "failed to enqueue task",
-			logger.F("error", err),
-			logger.F("task_type", task.Type()))
-		return fmt.Errorf("failed to enqueue task: %w", err)
+// Enqueue 入队任务 (实现 taskqueue.TaskQueue 接口)
+func (q *Queue) Enqueue(ctx context.Context, task *taskqueue.Task, opts ...taskqueue.Option) (*taskqueue.TaskResult, error) {
+	options := taskqueue.DefaultEnqueueOptions()
+	for _, opt := range opts {
+		opt(options)
 	}
 
-	q.log.Debug(context.Background(), "task enqueued successfully",
-		logger.F("task_id", info.ID),
-		logger.F("task_type", task.Type()),
-		logger.F("queue", info.Queue))
+	asynqTask := asynq.NewTask(task.Type, task.Payload)
+	asynqOpts := q.convertOptions(options)
 
+	info, err := q.client.Enqueue(asynqTask, asynqOpts...)
+	if err != nil {
+		q.log.Error(ctx, "failed to enqueue task",
+			logger.Err(err),
+			logger.String("task_type", task.Type))
+		return nil, fmt.Errorf("failed to enqueue task: %w", err)
+	}
+
+	q.log.Debug(ctx, "task enqueued successfully",
+		logger.String("task_id", info.ID),
+		logger.String("task_type", task.Type),
+		logger.String("queue", info.Queue))
+
+	return &taskqueue.TaskResult{
+		ID:    info.ID,
+		Queue: info.Queue,
+		Type:  task.Type,
+	}, nil
+}
+
+// EnqueueIn 延迟入队任务 (实现 taskqueue.TaskQueue 接口)
+func (q *Queue) EnqueueIn(ctx context.Context, task *taskqueue.Task, delay time.Duration, opts ...taskqueue.Option) (*taskqueue.TaskResult, error) {
+	options := taskqueue.DefaultEnqueueOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	asynqTask := asynq.NewTask(task.Type, task.Payload)
+	asynqOpts := q.convertOptions(options)
+	asynqOpts = append(asynqOpts, asynq.ProcessIn(delay))
+
+	info, err := q.client.Enqueue(asynqTask, asynqOpts...)
+	if err != nil {
+		q.log.Error(ctx, "failed to enqueue delayed task",
+			logger.Err(err),
+			logger.String("task_type", task.Type),
+			logger.Duration("delay", delay))
+		return nil, fmt.Errorf("failed to enqueue delayed task: %w", err)
+	}
+
+	return &taskqueue.TaskResult{
+		ID:    info.ID,
+		Queue: info.Queue,
+		Type:  task.Type,
+	}, nil
+}
+
+// EnqueueAt 定时入队任务 (实现 taskqueue.TaskQueue 接口)
+func (q *Queue) EnqueueAt(ctx context.Context, task *taskqueue.Task, processAt time.Time, opts ...taskqueue.Option) (*taskqueue.TaskResult, error) {
+	options := taskqueue.DefaultEnqueueOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	asynqTask := asynq.NewTask(task.Type, task.Payload)
+	asynqOpts := q.convertOptions(options)
+	asynqOpts = append(asynqOpts, asynq.ProcessAt(processAt))
+
+	info, err := q.client.Enqueue(asynqTask, asynqOpts...)
+	if err != nil {
+		q.log.Error(ctx, "failed to enqueue scheduled task",
+			logger.Err(err),
+			logger.String("task_type", task.Type),
+			logger.Time("process_at", processAt))
+		return nil, fmt.Errorf("failed to enqueue scheduled task: %w", err)
+	}
+
+	return &taskqueue.TaskResult{
+		ID:    info.ID,
+		Queue: info.Queue,
+		Type:  task.Type,
+	}, nil
+}
+
+// RegisterHandler 注册任务处理器 (实现 taskqueue.TaskQueue 接口)
+func (q *Queue) RegisterHandler(taskType string, handler taskqueue.Handler) error {
+	q.handlers[taskType] = func(ctx context.Context, t *asynq.Task) error {
+		return handler.Process(ctx, &taskqueue.Task{
+			Type:    t.Type(),
+			Payload: t.Payload(),
+		})
+	}
+	q.log.Debug(context.Background(), "registered task handler", logger.String("task_type", taskType))
 	return nil
 }
 
-// EnqueueDelay 延迟入队任务
-func (q *Queue) EnqueueDelay(delay time.Duration, task *asynq.Task, opts ...asynq.Option) error {
-	opts = append(opts, asynq.ProcessIn(delay))
-	return q.Enqueue(task, opts...)
+// convertOptions 转换选项为 asynq 选项
+func (q *Queue) convertOptions(opts *taskqueue.EnqueueOptions) []asynq.Option {
+	var asynqOpts []asynq.Option
+
+	if opts.Queue != "" && opts.Queue != "default" {
+		asynqOpts = append(asynqOpts, asynq.Queue(opts.Queue))
+	}
+	if opts.MaxRetry > 0 {
+		asynqOpts = append(asynqOpts, asynq.MaxRetry(opts.MaxRetry))
+	}
+	if opts.Timeout > 0 {
+		asynqOpts = append(asynqOpts, asynq.Timeout(opts.Timeout))
+	}
+	if opts.Unique {
+		asynqOpts = append(asynqOpts, asynq.Unique(time.Hour)) // 默认 1 小时内唯一
+	}
+	if opts.TaskID != "" {
+		asynqOpts = append(asynqOpts, asynq.TaskID(opts.TaskID))
+	}
+
+	return asynqOpts
 }
 
-// GetClient 获取 Asynq 客户端
+// GetClient 获取 Asynq 客户端 (保留用于高级用法)
 func (q *Queue) GetClient() *asynq.Client {
 	return q.client
 }
 
-// GetServer 获取 Asynq 服务器
+// GetServer 获取 Asynq 服务器 (保留用于高级用法)
 func (q *Queue) GetServer() *asynq.Server {
 	return q.server
 }

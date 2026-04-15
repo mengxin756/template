@@ -25,86 +25,101 @@ import (
 	"example.com/classic/pkg/logger"
 )
 
-// InitHTTPServer initializes HTTP Server
-func InitHTTPServer(ctx context.Context) (*http.Server, error) {
+// ============================================================
+// Provider Sets
+// ============================================================
+
+var ConfigSet = wire.NewSet(
+	config.Load,
+)
+
+var LoggerSet = wire.NewSet(
+	provideLogger,
+)
+
+var DataLayerSet = wire.NewSet(
+	sqlstore.New,
+	provideSQLDB,
+	provideDBTX,
+)
+
+var TaskQueueSet = wire.NewSet(
+	asynq.New,
+	provideEventPublisher,
+)
+
+var DomainSet = wire.NewSet(
+	providePasswordHasher,
+	provideUserFactory,
+	provideTransactionManager,
+)
+
+var RepositorySet = wire.NewSet(
+	provideUserRepository,
+)
+
+var ServiceSet = wire.NewSet(
+	service.NewUserService,
+)
+
+var HTTPHandlerSet = wire.NewSet(
+	handler.NewUserHandler,
+)
+
+var GRPCHandlerSet = wire.NewSet(
+	provideUserGRPCHandler,
+)
+
+var HTTPServerSet = wire.NewSet(
+	httpserver.NewServer,
+	provideHTTPServer,
+)
+
+var GRPCServerSet = wire.NewSet(
+	grpcserver.NewServer,
+)
+
+// ============================================================
+// Application Initialization Functions
+// ============================================================
+
+// InitHTTPServer initializes HTTP Server with cleanup function
+// Returns: HTTP server, cleanup function, error
+func InitHTTPServer(ctx context.Context) (*http.Server, func(), error) {
 	wire.Build(
-		// Config and logger
-		config.Load,
-		provideLogger,
-
-		// Data layer (sqlc)
-		sqlstore.New,
-		provideSQLDB,
-		provideDBTX,
-
-		// Task queue
-		asynq.New,
-
-		// Transaction manager
-		provideTransactionManager,
-
-		// Domain services
-		providePasswordHasher,
-		provideUserFactory,
-
-		// Infrastructure layer
-		provideEventPublisher,
-
-		// Repository layer (sqlc)
-		provideUserRepository,
-
-		// Service layer
-		service.NewUserService,
-
-		// Handler layer
-		handler.NewUserHandler,
-
-		// HTTP server
-		httpserver.NewServer,
-		provideHTTPServer,
+		ConfigSet,
+		LoggerSet,
+		DataLayerSet,
+		TaskQueueSet,
+		DomainSet,
+		RepositorySet,
+		ServiceSet,
+		HTTPHandlerSet,
+		HTTPServerSet,
 	)
-	return nil, nil
+	return nil, nil, nil
 }
 
-// InitGRPCServer initializes gRPC Server
-func InitGRPCServer(ctx context.Context) (*grpcserver.Server, error) {
+// InitGRPCServer initializes gRPC Server with cleanup function
+// Returns: gRPC server, cleanup function, error
+func InitGRPCServer(ctx context.Context) (*grpcserver.Server, func(), error) {
 	wire.Build(
-		// Config and logger
-		config.Load,
-		provideLogger,
-
-		// Data layer (sqlc)
-		sqlstore.New,
-		provideSQLDB,
-		provideDBTX,
-
-		// Task queue
-		asynq.New,
-
-		// Transaction manager
-		provideTransactionManager,
-
-		// Domain services
-		providePasswordHasher,
-		provideUserFactory,
-
-		// Infrastructure layer
-		provideEventPublisher,
-
-		// Repository layer (sqlc)
-		provideUserRepository,
-
-		// Service layer
-		service.NewUserService,
-
-		// Handler layer
-		provideUserGRPCHandler,
-
-		// gRPC server
-		grpcserver.NewServer,
+		ConfigSet,
+		LoggerSet,
+		DataLayerSet,
+		TaskQueueSet,
+		DomainSet,
+		RepositorySet,
+		ServiceSet,
+		GRPCHandlerSet,
+		GRPCServerSet,
 	)
-	return nil, nil
+	return nil, nil, nil
 }
+
+// ============================================================
+// Provider Functions
+// ============================================================
 
 // provideLogger provides logger instance
 func provideLogger(cfg *config.Config) logger.Logger {
@@ -121,21 +136,6 @@ func providePasswordHasher() domain.PasswordHasher {
 // provideUserFactory provides user factory
 func provideUserFactory(hasher domain.PasswordHasher) domain.UserFactory {
 	return domain.NewUserFactory(hasher)
-}
-
-// provideEventPublisher provides event publisher
-func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
-	return messaging.NewAsynqEventPublisher(taskQueue, log)
-}
-
-// provideSQLDB provides sql.DB
-func provideSQLDB(store *sqlstore.Store) *sql.DB {
-	return store.DB
-}
-
-// provideDBTX provides DBTX interface for sqlc
-func provideDBTX(sqldb *sql.DB) db.DBTX {
-	return sqldb
 }
 
 // provideTransactionManager provides transaction manager
@@ -156,4 +156,19 @@ func provideUserGRPCHandler(userSvc service.UserService, log logger.Logger) pb.U
 // provideHTTPServer provides HTTP server
 func provideHTTPServer(server *httpserver.Server) *http.Server {
 	return server.GetHTTPServer()
+}
+
+// provideSQLDB provides sql.DB
+func provideSQLDB(store *sqlstore.Store) *sql.DB {
+	return store.DB
+}
+
+// provideDBTX provides DBTX interface for sqlc
+func provideDBTX(sqldb *sql.DB) db.DBTX {
+	return sqldb
+}
+
+// provideEventPublisher provides event publisher
+func provideEventPublisher(taskQueue *asynq.Queue, log logger.Logger) domain.EventPublisher {
+	return messaging.NewAsynqEventPublisher(taskQueue, log)
 }
