@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"example.com/classic/pkg/contextx"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -76,14 +77,36 @@ func Time(key string, value time.Time) Field {
 	return Field{Key: key, Value: value.Format(time.RFC3339)}
 }
 
-// traceIDHook 从 context 中提取 trace_id 并添加到日志
-type traceIDHook struct{}
+// traceHook 从 context 中提取追踪信息并添加到日志
+type traceHook struct{}
 
-func (h traceIDHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
-	if ctx := e.GetCtx(); ctx != nil {
-		if traceID := getTraceID(ctx); traceID != "" {
-			e.Str("trace_id", traceID)
-		}
+func (h traceHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
+	ctx := e.GetCtx()
+	if ctx == nil {
+		return
+	}
+
+	// 提取所有追踪字段
+	if traceID := contextx.GetTraceID(ctx); traceID != "" {
+		e.Str("trace_id", traceID)
+	}
+	if spanID := contextx.GetSpanID(ctx); spanID != "" {
+		e.Str("span_id", spanID)
+	}
+	if parentSpanID := contextx.GetParentSpanID(ctx); parentSpanID != "" {
+		e.Str("parent_span_id", parentSpanID)
+	}
+	if userID := contextx.GetUserID(ctx); userID != "" {
+		e.Str("user_id", userID)
+	}
+	if requestID := contextx.GetRequestID(ctx); requestID != "" {
+		e.Str("request_id", requestID)
+	}
+	if clientIP := contextx.GetClientIP(ctx); clientIP != "" {
+		e.Str("client_ip", clientIP)
+	}
+	if operation := contextx.GetOperationName(ctx); operation != "" {
+		e.Str("operation", operation)
 	}
 }
 
@@ -131,8 +154,8 @@ func New(service string, level string, isDevelopment bool) Logger {
 		Timestamp().
 		Logger()
 
-	// 添加 trace_id hook
-	baseLogger = baseLogger.Hook(traceIDHook{})
+	// 添加追踪 hook
+	baseLogger = baseLogger.Hook(traceHook{})
 
 	return &logger{log: baseLogger}
 }
@@ -229,25 +252,9 @@ func (l *logger) Sync() error {
 	return nil
 }
 
-// 上下文相关
-type contextKey string
-
-const traceIDKey contextKey = "trace_id"
-
-// ContextWithTraceID 在上下文中设置 trace_id
+// ContextWithTraceID 在上下文中设置 trace_id (兼容旧代码，推荐使用 contextx 包)
 func ContextWithTraceID(ctx context.Context, traceID string) context.Context {
-	return context.WithValue(ctx, traceIDKey, traceID)
-}
-
-// getTraceID 从上下文中获取 trace_id
-func getTraceID(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	if traceID, ok := ctx.Value(traceIDKey).(string); ok {
-		return traceID
-	}
-	return ""
+	return contextx.WithTraceID(ctx, traceID)
 }
 
 // 便捷函数

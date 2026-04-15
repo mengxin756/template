@@ -7,9 +7,9 @@ import (
 
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/handler"
+	"example.com/classic/pkg/contextx"
 	"example.com/classic/pkg/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // Server HTTP 服务器
@@ -58,8 +58,8 @@ func (s *Server) setupMiddleware() {
 	// 恢复中间件
 	s.engine.Use(gin.Recovery())
 
-	// 请求ID中间件
-	s.engine.Use(s.requestIDMiddleware())
+	// 链路追踪中间件 (最先执行)
+	s.engine.Use(s.tracingMiddleware())
 
 	// 访问日志中间件
 	s.engine.Use(s.accessLogMiddleware())
@@ -91,21 +91,42 @@ func (s *Server) setupRoutes(userHandler *handler.UserHandler) {
 	}
 }
 
-// requestIDMiddleware 请求ID中间件
-func (s *Server) requestIDMiddleware() gin.HandlerFunc {
+// tracingMiddleware 链路追踪中间件 (增强版)
+func (s *Server) tracingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 从请求头获取 trace_id，如果没有则生成新的
+		// 从请求头获取追踪信息
 		traceID := c.GetHeader("X-Trace-ID")
+		parentSpanID := c.GetHeader("X-Span-ID")
+		userID := c.GetHeader("X-User-ID")
+
+		// 如果没有 trace_id 则生成新的
 		if traceID == "" {
-			traceID = generateTraceID()
+			traceID = contextx.GenerateTraceID()
 		}
 
-		// 设置到上下文
-		ctx := logger.ContextWithTraceID(c.Request.Context(), traceID)
+		// 生成当前请求的 span_id
+		spanID := contextx.GenerateSpanID()
+
+		// 构建追踪上下文
+		ctx := c.Request.Context()
+		ctx = contextx.WithTraceID(ctx, traceID)
+		ctx = contextx.WithSpanID(ctx, spanID)
+		ctx = contextx.WithUserID(ctx, userID)
+		ctx = contextx.WithClientIP(ctx, c.ClientIP())
+		ctx = contextx.WithUserAgent(ctx, c.Request.UserAgent())
+		ctx = contextx.WithServiceName(ctx, s.config.Service)
+		ctx = contextx.WithOperationName(ctx, c.Request.Method+" "+c.Request.URL.Path)
+
+		// 如果有父 span，设置 parent_span_id
+		if parentSpanID != "" {
+			ctx = contextx.WithParentSpanID(ctx, parentSpanID)
+		}
+
 		c.Request = c.Request.WithContext(ctx)
 
-		// 设置响应头
+		// 设置响应头 (便于下游服务追踪)
 		c.Header("X-Trace-ID", traceID)
+		c.Header("X-Span-ID", spanID)
 
 		c.Next()
 	}
@@ -121,26 +142,44 @@ func (s *Server) accessLogMiddleware() gin.HandlerFunc {
 		// 处理请求
 		c.Next()
 
-		// 记录访问日志
+		// 记录访问日志 (追踪信息由 traceHook 自动注入)
 		latency := time.Since(start)
 		status := c.Writer.Status()
 		method := c.Request.Method
-		clientIP := c.ClientIP()
-		userAgent := c.Request.UserAgent()
 
 		if raw != "" {
 			path = path + "?" + raw
 		}
 
 		ctx := c.Request.Context()
-		s.log.Info(ctx, "HTTP request",
-			logger.F("method", method),
-			logger.F("path", path),
-			logger.F("status", status),
-			logger.F("latency", latency),
-			logger.F("client_ip", clientIP),
-			logger.F("user_agent", userAgent),
-		)
+		level := "info"
+		if status >= 400 {
+			level = "warn"
+		}
+		if status >= 500 {
+			level = "error"
+		}
+
+		switch level {
+		case "error":
+			s.log.Error(ctx, "HTTP request",
+				logger.String("method", method),
+				logger.String("path", path),
+				logger.Int("status", status),
+				logger.Duration("latency", latency))
+		case "warn":
+			s.log.Warn(ctx, "HTTP request",
+				logger.String("method", method),
+				logger.String("path", path),
+				logger.Int("status", status),
+				logger.Duration("latency", latency))
+		default:
+			s.log.Info(ctx, "HTTP request",
+				logger.String("method", method),
+				logger.String("path", path),
+				logger.Int("status", status),
+				logger.Duration("latency", latency))
+		}
 	}
 }
 
@@ -183,10 +222,6 @@ func (s *Server) Stop(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
-// generateTraceID 生成追踪ID
-func generateTraceID() string {
-	return uuid.New().String()
-}
 
 // GetHTTPServer 获取 HTTP 服务器实例
 func (s *Server) GetHTTPServer() *http.Server {

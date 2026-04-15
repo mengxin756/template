@@ -8,6 +8,7 @@ import (
 	"example.com/classic/internal/domain"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
+	"example.com/classic/pkg/tracer"
 )
 
 // userRepository user repository implementation
@@ -34,6 +35,10 @@ func (r *userRepository) getClient(ctx context.Context) *ent.Client {
 
 // Create creates user (backward compatible)
 func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
+	// 创建 DB 操作 span
+	span, ctx := tracer.DBSpan(ctx, r.log, "INSERT user")
+	defer span.End()
+
 	r.log.Debug(ctx, "creating user", logger.F("email", user.Email().String()))
 
 	client := r.getClient(ctx)
@@ -41,6 +46,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	// Check if email already exists
 	exists, err := r.ExistsByEmail(ctx, user.Email().String())
 	if err != nil {
+		span.EndWithError(err)
 		return errors.WrapInternalError(err, "check email exists failed")
 	}
 	if exists {
@@ -55,7 +61,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		SetStatus(string(user.Status())).
 		Save(ctx)
 	if err != nil {
-		r.log.Error(ctx, "create user failed", logger.F("error", err))
+		span.EndWithError(err)
 		return errors.WrapInternalError(err, "create user failed")
 	}
 
@@ -70,6 +76,10 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 
 // GetByID gets user by ID
 func (r *userRepository) GetByID(ctx context.Context, id int) (*domain.User, error) {
+	// 创建 DB 操作 span
+	span, ctx := tracer.DBSpan(ctx, r.log, "SELECT user WHERE id=?")
+	defer span.End()
+
 	r.log.Debug(ctx, "getting user by id", logger.F("user_id", id))
 
 	client := r.getClient(ctx)
@@ -78,6 +88,7 @@ func (r *userRepository) GetByID(ctx context.Context, id int) (*domain.User, err
 		if ent.IsNotFound(err) {
 			return nil, errors.ErrUserNotFound
 		}
+		span.EndWithError(err)
 		r.log.Error(ctx, "get user by id failed", logger.F("error", err), logger.F("user_id", id))
 		return nil, errors.WrapInternalError(err, "get user by id failed")
 	}

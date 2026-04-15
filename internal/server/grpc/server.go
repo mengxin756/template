@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"time"
 
 	"example.com/classic/api/grpc/pb"
 	"example.com/classic/internal/config"
+	"example.com/classic/pkg/contextx"
 	"example.com/classic/pkg/logger"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -76,35 +79,121 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
-// unaryInterceptor logs requests
+// unaryInterceptor 链路追踪拦截器 (增强版)
 func (s *Server) unaryInterceptor(
 	ctx context.Context,
 	req interface{},
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
-	s.log.Debug(ctx, "gRPC request",
-		logger.F("method", info.FullMethod),
-		logger.F("request", req))
+	start := time.Now()
+
+	// 从 metadata 提取追踪信息
+	ctx = s.extractTraceContext(ctx)
+
+	// 设置操作名称
+	ctx = contextx.WithOperationName(ctx, info.FullMethod)
+	ctx = contextx.WithServiceName(ctx, s.cfg.Service)
+
+	// 创建子 span
+	ctx = contextx.ChildSpan(ctx)
+
+	s.log.Debug(ctx, "gRPC request started",
+		logger.String("method", info.FullMethod))
 
 	resp, err := handler(ctx, req)
+
+	latency := time.Since(start)
 	if err != nil {
-		s.log.Warn(ctx, "gRPC error",
-			logger.F("method", info.FullMethod),
-			logger.F("error", err))
+		s.log.Error(ctx, "gRPC request failed",
+			logger.String("method", info.FullMethod),
+			logger.Err(err),
+			logger.Duration("latency", latency))
+	} else {
+		s.log.Info(ctx, "gRPC request completed",
+			logger.String("method", info.FullMethod),
+			logger.Duration("latency", latency))
 	}
+
 	return resp, err
 }
 
-// streamInterceptor logs stream requests
+// streamInterceptor 链路追踪流式拦截器
 func (s *Server) streamInterceptor(
 	srv interface{},
 	ss grpc.ServerStream,
 	info *grpc.StreamServerInfo,
 	handler grpc.StreamHandler,
 ) error {
-	s.log.Debug(ss.Context(), "gRPC stream request",
-		logger.F("method", info.FullMethod))
+	start := time.Now()
 
-	return handler(srv, ss)
+	// 从 metadata 提取追踪信息
+	ctx := s.extractTraceContext(ss.Context())
+	ctx = contextx.WithOperationName(ctx, info.FullMethod)
+	ctx = contextx.WithServiceName(ctx, s.cfg.Service)
+	ctx = contextx.ChildSpan(ctx)
+
+	// 包装 ServerStream 以传递新的 context
+	wrapped := &wrappedServerStream{
+		ServerStream: ss,
+		ctx:          ctx,
+	}
+
+	s.log.Debug(ctx, "gRPC stream started",
+		logger.String("method", info.FullMethod))
+
+	err := handler(srv, wrapped)
+
+	latency := time.Since(start)
+	if err != nil {
+		s.log.Error(ctx, "gRPC stream failed",
+			logger.String("method", info.FullMethod),
+			logger.Err(err),
+			logger.Duration("latency", latency))
+	} else {
+		s.log.Info(ctx, "gRPC stream completed",
+			logger.String("method", info.FullMethod),
+			logger.Duration("latency", latency))
+	}
+
+	return err
+}
+
+// extractTraceContext extracts trace context from gRPC metadata
+func (s *Server) extractTraceContext(ctx context.Context) context.Context {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return contextx.WithTraceID(ctx, contextx.GenerateTraceID())
+	}
+
+	if values := md.Get("x-trace-id"); len(values) > 0 {
+		ctx = contextx.WithTraceID(ctx, values[0])
+	} else {
+		ctx = contextx.WithTraceID(ctx, contextx.GenerateTraceID())
+	}
+
+	if values := md.Get("x-span-id"); len(values) > 0 {
+		ctx = contextx.WithSpanID(ctx, values[0])
+	}
+	if values := md.Get("x-parent-span-id"); len(values) > 0 {
+		ctx = contextx.WithParentSpanID(ctx, values[0])
+	}
+	if values := md.Get("x-user-id"); len(values) > 0 {
+		ctx = contextx.WithUserID(ctx, values[0])
+	}
+	if values := md.Get("x-client-ip"); len(values) > 0 {
+		ctx = contextx.WithClientIP(ctx, values[0])
+	}
+
+	return ctx
+}
+
+// wrappedServerStream wraps ServerStream to pass context
+type wrappedServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *wrappedServerStream) Context() context.Context {
+	return w.ctx
 }
