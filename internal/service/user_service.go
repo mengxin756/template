@@ -10,6 +10,7 @@ import (
 	"example.com/classic/internal/taskqueue"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
+	"example.com/classic/pkg/tracer"
 )
 
 // UserService defines the user service interface
@@ -53,40 +54,61 @@ func NewUserService(
 
 // Register user registration
 func (s *userService) Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error) {
-	s.log.Info(ctx, "user registration started", logger.F("email", req.Email))
+	// 创建 Service 层 span
+	span, ctx := tracer.ServiceSpan(ctx, s.log, "Register")
+	defer span.End()
+
+	s.log.Info(ctx, "用户注册开始",
+		logger.String("email", req.Email),
+		logger.String("name", req.Name))
 
 	var user *domain.User
 
 	// Execute within transaction
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// 1. Use domain factory to create user aggregate (business logic in domain layer)
+		factorySpan, txCtx := tracer.StartSpan(txCtx, s.log, "domain:CreateNewUser")
 		aggregate, err := s.userFactory.CreateNewUser(req.Name, req.Email, req.Password)
 		if err != nil {
-			s.log.Warn(ctx, "failed to create user aggregate", logger.F("error", err))
+			factorySpan.EndWithError(err)
+			s.log.Warn(ctx, "创建用户聚合失败", logger.Err(err))
 			return errors.New(errors.ErrCodeInvalidParam, err.Error())
 		}
+		factorySpan.End()
 
 		// 2. Check email uniqueness (application service coordination)
+		checkSpan, txCtx := tracer.DBSpan(txCtx, s.log, "SELECT COUNT(*) FROM users WHERE email=?")
 		exists, err := s.userRepo.ExistsByEmail(txCtx, req.Email)
 		if err != nil {
+			checkSpan.EndWithError(err)
 			return err
 		}
+		checkSpan.End()
+
 		if exists {
+			s.log.Warn(ctx, "邮箱已存在", logger.String("email", req.Email))
 			return errors.ErrUserAlreadyExists
 		}
 
 		// 3. Persist aggregate
+		saveSpan, txCtx := tracer.DBSpan(txCtx, s.log, "INSERT INTO users")
 		if err := s.userRepo.Save(txCtx, aggregate); err != nil {
+			saveSpan.EndWithError(err)
 			return err
 		}
+		saveSpan.End()
 
 		user = aggregate.User()
 
 		// 4. Publish domain events (decoupled business logic)
 		if aggregate.HasEvents() {
+			eventSpan, _ := tracer.StartSpan(txCtx, s.log, "event:PublishBatch")
 			if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
-				s.log.Warn(ctx, "failed to publish domain events", logger.F("error", err))
+				eventSpan.EndWithError(err)
+				s.log.Warn(ctx, "failed to publish domain events", logger.Err(err))
 				// Don't block main flow, just log warning
+			} else {
+				eventSpan.End()
 			}
 			// Clear published events
 			aggregate.ClearEvents()
@@ -96,6 +118,7 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 	})
 
 	if err != nil {
+		span.EndWithError(err)
 		return nil, err
 	}
 
@@ -104,19 +127,24 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 		s.enqueueWelcomeEmail(ctx, user.ID(), user.Email().String(), user.Name().String())
 	}
 
-	s.log.Info(ctx, "user registration completed",
-		logger.F("user_id", user.ID()),
-		logger.F("email", user.Email().String()))
+	s.log.Info(ctx, "用户注册完成",
+		logger.Int("user_id", user.ID()),
+		logger.String("email", user.Email().String()))
 
 	return user, nil
 }
 
 // GetByID 根据ID获取用户
 func (s *userService) GetByID(ctx context.Context, id int) (*domain.User, error) {
-	s.log.Debug(ctx, "getting user by id", logger.F("user_id", id))
+	// 创建 Service 层 span
+	span, ctx := tracer.ServiceSpan(ctx, s.log, "GetByID")
+	defer span.End()
+
+	s.log.Debug(ctx, "根据ID获取用户", logger.Int("user_id", id))
 
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
+		span.EndWithError(err)
 		return nil, err
 	}
 
@@ -127,7 +155,14 @@ func (s *userService) GetByID(ctx context.Context, id int) (*domain.User, error)
 
 // Update updates user
 func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUserRequest) (*domain.User, error) {
-	s.log.Info(ctx, "updating user", logger.F("user_id", id))
+	// 创建 Service 层 span
+	span, ctx := tracer.ServiceSpan(ctx, s.log, "Update")
+	defer span.End()
+
+	s.log.Info(ctx, "更新用户",
+		logger.Int("user_id", id),
+		logger.Bool("has_name", req.Name != nil),
+		logger.Bool("has_email", req.Email != nil))
 
 	// 1. 获取聚合根
 	aggregate, err := s.userRepo.GetAggregateByID(ctx, id)
@@ -195,7 +230,11 @@ func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUse
 
 // Delete deletes user
 func (s *userService) Delete(ctx context.Context, id int) error {
-	s.log.Info(ctx, "deleting user", logger.F("user_id", id))
+	// 创建 Service 层 span
+	span, ctx := tracer.ServiceSpan(ctx, s.log, "Delete")
+	defer span.End()
+
+	s.log.Info(ctx, "删除用户", logger.Int("user_id", id))
 
 	// 1. 获取聚合根
 	aggregate, err := s.userRepo.GetAggregateByID(ctx, id)
@@ -219,7 +258,13 @@ func (s *userService) Delete(ctx context.Context, id int) error {
 
 // List queries user list
 func (s *userService) List(ctx context.Context, query *request.UserQuery) ([]*domain.User, int64, error) {
-	s.log.Debug(ctx, "listing users", logger.F("query", query))
+	// 创建 Service 层 span
+	span, ctx := tracer.ServiceSpan(ctx, s.log, "List")
+	defer span.End()
+
+	s.log.Debug(ctx, "查询用户列表",
+		logger.Int("page", query.Page),
+		logger.Int("page_size", query.PageSize))
 
 	// Validate and normalize query params
 	s.normalizeQuery(query)
@@ -253,7 +298,13 @@ func (s *userService) List(ctx context.Context, query *request.UserQuery) ([]*do
 
 // ChangeStatus changes user status
 func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.Status) error {
-	s.log.Info(ctx, "changing user status", logger.F("user_id", id))
+	// 创建 Service 层 span
+	span, ctx := tracer.ServiceSpan(ctx, s.log, "ChangeStatus")
+	defer span.End()
+
+	s.log.Info(ctx, "更改用户状态",
+		logger.Int("user_id", id),
+		logger.String("new_status", string(status)))
 
 	// 1. 获取聚合根
 	aggregate, err := s.userRepo.GetAggregateByID(ctx, id)

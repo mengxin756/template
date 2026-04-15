@@ -9,6 +9,7 @@ import (
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 	"example.com/classic/pkg/response"
+	"example.com/classic/pkg/tracer"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,22 +41,32 @@ func NewUserHandler(userService service.UserService, log logger.Logger) *UserHan
 // @Router /api/v1/users [post]
 func (h *UserHandler) Register(c *gin.Context) {
 	ctx := c.Request.Context()
-	h.log.Info(ctx, "user registration request received")
+
+	// Handler span -  HTTP  handler 
+	span, ctx := tracer.StartSpan(ctx, h.log, "handler:Register")
+	defer span.End()
+
+	h.log.Info(ctx, "  user registration request received")
 
 	var req request.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.log.Warn(ctx, "invalid request body", logger.F("error", err))
+		h.log.Warn(ctx, "invalid request body", logger.Err(err))
 		response.InvalidParam(c, "invalid request body: "+err.Error())
 		return
 	}
 
+	h.log.Debug(ctx, "request body parsed",
+		logger.String("email", req.Email),
+		logger.String("name", req.Name))
+
 	user, err := h.userService.Register(ctx, &req)
 	if err != nil {
+		span.EndWithError(err)
 		h.handleError(c, err)
 		return
 	}
 
-	h.log.Info(ctx, "user registration successful", logger.F("user_id", user.ID))
+	h.log.Info(ctx, "user registration successful", logger.Int("user_id", user.ID()))
 	response.SuccessWithMsg(c, "user registered successfully", user)
 }
 
@@ -74,23 +85,28 @@ func (h *UserHandler) Register(c *gin.Context) {
 func (h *UserHandler) GetByID(c *gin.Context) {
 	ctx := c.Request.Context()
 
+	// Handler span
+	span, ctx := tracer.StartSpan(ctx, h.log, "handler:GetByID")
+	defer span.End()
+
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		h.log.Warn(ctx, "invalid user id", logger.F("id", idStr), logger.F("error", err))
+		h.log.Warn(ctx, "invalid user id", logger.String("id", idStr), logger.Err(err))
 		response.InvalidParam(c, "invalid user id")
 		return
 	}
 
-	h.log.Debug(ctx, "getting user by id", logger.F("user_id", id))
+	h.log.Debug(ctx, "getting user by id", logger.Int("user_id", id))
 
 	user, err := h.userService.GetByID(ctx, id)
 	if err != nil {
+		span.EndWithError(err)
 		h.handleError(c, err)
 		return
 	}
 
-	h.log.Debug(ctx, "user retrieved successfully", logger.F("user_id", id))
+	h.log.Debug(ctx, "user retrieved successfully", logger.Int("user_id", id))
 	response.Success(c, user)
 }
 
@@ -111,30 +127,39 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 func (h *UserHandler) Update(c *gin.Context) {
 	ctx := c.Request.Context()
 
+	// Handler span
+	span, ctx := tracer.StartSpan(ctx, h.log, "handler:Update")
+	defer span.End()
+
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		h.log.Warn(ctx, "invalid user id", logger.F("id", idStr), logger.F("error", err))
+		h.log.Warn(ctx, "invalid user id", logger.String("id", idStr), logger.Err(err))
 		response.InvalidParam(c, "invalid user id")
 		return
 	}
 
 	var req request.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.log.Warn(ctx, "invalid request body", logger.F("error", err))
+		h.log.Warn(ctx, "invalid request body", logger.Err(err))
 		response.InvalidParam(c, "invalid request body: "+err.Error())
 		return
 	}
 
-	h.log.Info(ctx, "updating user", logger.F("user_id", id))
+	h.log.Info(ctx, "updating user",
+		logger.Int("user_id", id),
+		logger.Bool("has_name", req.Name != nil),
+		logger.Bool("has_email", req.Email != nil),
+		logger.Bool("has_status", req.Status != nil))
 
 	user, err := h.userService.Update(ctx, id, &req)
 	if err != nil {
+		span.EndWithError(err)
 		h.handleError(c, err)
 		return
 	}
 
-	h.log.Info(ctx, "user updated successfully", logger.F("user_id", id))
+	h.log.Info(ctx, "user updated successfully", logger.Int("user_id", id))
 	response.SuccessWithMsg(c, "user updated successfully", user)
 }
 
@@ -153,22 +178,27 @@ func (h *UserHandler) Update(c *gin.Context) {
 func (h *UserHandler) Delete(c *gin.Context) {
 	ctx := c.Request.Context()
 
+	// Handler span
+	span, ctx := tracer.StartSpan(ctx, h.log, "handler:Delete")
+	defer span.End()
+
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		h.log.Warn(ctx, "invalid user id", logger.F("id", idStr), logger.F("error", err))
+		h.log.Warn(ctx, "invalid user id", logger.String("id", idStr), logger.Err(err))
 		response.InvalidParam(c, "invalid user id")
 		return
 	}
 
-	h.log.Info(ctx, "deleting user", logger.F("user_id", id))
+	h.log.Info(ctx, "deleting user", logger.Int("user_id", id))
 
 	if err := h.userService.Delete(ctx, id); err != nil {
+		span.EndWithError(err)
 		h.handleError(c, err)
 		return
 	}
 
-	h.log.Info(ctx, "user deleted successfully", logger.F("user_id", id))
+	h.log.Info(ctx, "user deleted successfully", logger.Int("user_id", id))
 	response.SuccessWithMsg(c, "user deleted successfully", nil)
 }
 
@@ -189,6 +219,10 @@ func (h *UserHandler) Delete(c *gin.Context) {
 // @Router /api/v1/users [get]
 func (h *UserHandler) List(c *gin.Context) {
 	ctx := c.Request.Context()
+
+	// Handler span
+	span, ctx := tracer.StartSpan(ctx, h.log, "handler:List")
+	defer span.End()
 
 	// Parse query parameters
 	query := &request.UserQuery{
@@ -223,15 +257,22 @@ func (h *UserHandler) List(c *gin.Context) {
 		}
 	}
 
-	h.log.Debug(ctx, "listing users", logger.F("query", query))
+	h.log.Debug(ctx, "listing users",
+		logger.Int("page", query.Page),
+		logger.Int("page_size", query.PageSize),
+		logger.Bool("has_name_filter", query.Name != nil),
+		logger.Bool("has_email_filter", query.Email != nil))
 
 	users, total, err := h.userService.List(ctx, query)
 	if err != nil {
+		span.EndWithError(err)
 		h.handleError(c, err)
 		return
 	}
 
-	h.log.Debug(ctx, "users listed successfully", logger.F("total", total), logger.F("count", len(users)))
+	h.log.Debug(ctx, "users listed successfully",
+		logger.Int64("total", total),
+		logger.Int("count", len(users)))
 	response.SuccessWithPage(c, users, total, query.Page, query.PageSize)
 }
 
@@ -251,37 +292,46 @@ func (h *UserHandler) List(c *gin.Context) {
 func (h *UserHandler) ChangeStatus(c *gin.Context) {
 	ctx := c.Request.Context()
 
+	// Handler span
+	span, ctx := tracer.StartSpan(ctx, h.log, "handler:ChangeStatus")
+	defer span.End()
+
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		h.log.Warn(ctx, "invalid user id", logger.F("id", idStr), logger.F("error", err))
+		h.log.Warn(ctx, "invalid user id", logger.String("id", idStr), logger.Err(err))
 		response.InvalidParam(c, "invalid user id")
 		return
 	}
 
 	var req request.ChangeStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.log.Warn(ctx, "invalid request body", logger.F("error", err))
+		h.log.Warn(ctx, "invalid request body", logger.Err(err))
 		response.InvalidParam(c, "invalid request body: "+err.Error())
 		return
 	}
 
 	if !req.Status.IsValid() {
-		h.log.Warn(ctx, "invalid status", logger.F("status", req.Status))
+		h.log.Warn(ctx, "invalid status", logger.String("status", string(req.Status)))
 		response.InvalidParam(c, "invalid status")
 		return
 	}
 
 	status := req.Status
 
-	h.log.Info(ctx, "changing user status", logger.F("user_id", id), logger.F("status", status))
+	h.log.Info(ctx, "changing user status",
+		logger.Int("user_id", id),
+		logger.String("new_status", string(status)))
 
 	if err := h.userService.ChangeStatus(ctx, id, status); err != nil {
+		span.EndWithError(err)
 		h.handleError(c, err)
 		return
 	}
 
-	h.log.Info(ctx, "user status changed successfully", logger.F("user_id", id), logger.F("status", status))
+	h.log.Info(ctx, "user status changed successfully",
+		logger.Int("user_id", id),
+		logger.String("status", string(status)))
 	response.SuccessWithMsg(c, "user status changed successfully", nil)
 }
 
@@ -289,8 +339,8 @@ func (h *UserHandler) ChangeStatus(c *gin.Context) {
 func (h *UserHandler) handleError(c *gin.Context, err error) {
 	ctx := c.Request.Context()
 
-	// Log error
-	h.log.Error(ctx, "handler error", logger.F("error", err))
+	// Log error with trace context
+	h.log.Error(ctx, "handler error", logger.Err(err))
 
 	// Return appropriate response based on error type
 	if domainErr, ok := err.(*errors.Error); ok {
