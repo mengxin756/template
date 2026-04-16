@@ -1,0 +1,77 @@
+# Observability Stack for Log Visualization
+# Usage: docker-compose up -d
+# Access: http://localhost:3000 (Grafana, admin/admin)
+
+version: "3.8"
+
+services:
+  # ============== Log Aggregation ==============
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - observability
+
+  # ============== Trace Aggregation ==============
+  tempo:
+    image: grafana/tempo:2.3.0
+    container_name: tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ./tempo-config.yml:/etc/tempo.yaml
+      - tempo-data:/tmp/tempo
+    command: -config.file=/etc/tempo.yaml
+    networks:
+      - observability
+
+  # ============== Visualization ==============
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml
+      - ./dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+      - tempo
+    networks:
+      - observability
+
+  # ============== Log Shipping (Promtail) ==============
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yaml
+      - ../../logs:/var/log/app:ro  # Mount your app logs directory
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+    networks:
+      - observability
+
+volumes:
+  loki-data:
+  tempo-data:
+  grafana-data:
+
+networks:
+  observability:
+    driver: bridge

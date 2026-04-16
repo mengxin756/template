@@ -1,0 +1,51 @@
+# Promtail Configuration - Ship logs to Loki
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape application logs
+  - job_name: app-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: classic-api
+          env: development
+          __path__: /var/log/app/*.log
+    pipeline_stages:
+      # Parse JSON logs from zerolog
+      - json:
+          expressions:
+            level: level
+            service: service
+            trace_id: trace_id
+            span_id: span_id
+            parent_span_id: parent_span_id
+            user_id: user_id
+            operation: operation
+            message: message
+            timestamp: time
+      # Set log level for proper display
+      - labels:
+          level:
+          service:
+          trace_id:
+          span_id:
+          operation:
+      # Set timestamp from log
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      # Extract latency for metrics
+      - regex:
+          expression: '.*"latency":"([^"]+)".*'
+          source: message
+      - labels:
+          latency:

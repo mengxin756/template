@@ -2,7 +2,9 @@ package logger
 
 import (
 	"context"
+	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"example.com/classic/pkg/contextx"
@@ -115,9 +117,10 @@ type logger struct {
 	log zerolog.Logger
 }
 
-// New 创建新的日志实例
-func New(service string, level string, isDevelopment bool) Logger {
-	// 设置日志级别
+// New creates a new logger instance.
+// If logDir is provided, logs will be written to both console and file.
+func New(service string, level string, isDevelopment bool, logDir ...string) Logger {
+	// Set log level
 	logLevel := zerolog.InfoLevel
 	switch level {
 	case "debug":
@@ -134,27 +137,42 @@ func New(service string, level string, isDevelopment bool) Logger {
 		logLevel = zerolog.PanicLevel
 	}
 
-	// 配置 zerolog
+	// Configure zerolog
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	zerolog.SetGlobalLevel(logLevel)
 
-	// 开发环境使用彩色输出
+	// Determine output writer
+	var writer io.Writer
 	if isDevelopment {
-		log.Logger = log.Output(zerolog.ConsoleWriter{
+		// Development: console with colors
+		writer = zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: time.RFC3339,
-		})
+		}
 	} else {
-		log.Logger = log.Output(os.Stdout)
+		// Production: JSON to stdout
+		writer = os.Stdout
 	}
 
-	// 创建基础日志实例
+	// If logDir is provided, also write to file
+	if len(logDir) > 0 && logDir[0] != "" {
+		logPath := filepath.Join(logDir[0], "app.log")
+		file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			// MultiWriter: write to both console and file
+			writer = io.MultiWriter(writer, file)
+		}
+	}
+
+	log.Logger = log.Output(writer)
+
+	// Create base logger instance
 	baseLogger := log.With().
 		Str("service", service).
 		Timestamp().
 		Logger()
 
-	// 添加追踪 hook
+	// Add trace hook
 	baseLogger = baseLogger.Hook(traceHook{})
 
 	return &logger{log: baseLogger}
