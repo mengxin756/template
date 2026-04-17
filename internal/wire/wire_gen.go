@@ -12,6 +12,7 @@ import (
 	"example.com/classic/api/grpc/pb"
 	"example.com/classic/internal/config"
 	"example.com/classic/internal/data"
+	"example.com/classic/internal/infrastructure/hashing"
 	"example.com/classic/internal/data/db"
 	"example.com/classic/internal/data/store/sqlstore"
 	"example.com/classic/internal/domain"
@@ -52,7 +53,7 @@ func InitHTTPServer(ctx context.Context) (*http.Server, func(), error) {
 		return nil, nil, err
 	}
 	eventPublisher := provideEventPublisher(queue, logger)
-	userService := service.NewUserService(userRepository, userFactory, transactionManager, queue, eventPublisher, logger)
+	userService := service.NewUserService(userRepository, userFactory, transactionManager, eventPublisher, logger)
 	userHandler := handler.NewUserHandler(userService, logger)
 	server := http2.NewServer(configConfig, logger, userHandler)
 	httpServer := provideHTTPServer(server)
@@ -83,7 +84,7 @@ func InitGRPCServer(ctx context.Context) (*grpc.Server, func(), error) {
 		return nil, nil, err
 	}
 	eventPublisher := provideEventPublisher(queue, logger)
-	userService := service.NewUserService(userRepository, userFactory, transactionManager, queue, eventPublisher, logger)
+	userService := service.NewUserService(userRepository, userFactory, transactionManager, eventPublisher, logger)
 	userServiceServer := provideUserGRPCHandler(userService, logger)
 	server := grpc.NewServer(configConfig, logger, userServiceServer)
 	return server, func() {
@@ -135,7 +136,7 @@ func provideLogger(cfg *config.Config) logger.Logger {
 
 // providePasswordHasher provides password hasher
 func providePasswordHasher() domain.PasswordHasher {
-	return domain.NewBcryptPasswordHasher()
+	return hashing.NewBcryptPasswordHasher()
 }
 
 // provideUserFactory provides user factory

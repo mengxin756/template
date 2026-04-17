@@ -5,8 +5,8 @@ import (
 
 	"example.com/classic/api/grpc/pb"
 	"example.com/classic/internal/domain"
-	"example.com/classic/internal/handler/request"
 	"example.com/classic/internal/service"
+	"example.com/classic/internal/service/dto"
 	"example.com/classic/pkg/logger"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -30,7 +30,7 @@ func NewUserGRPCHandler(userSvc service.UserService, log logger.Logger) pb.UserS
 func (h *UserGRPCHandler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.UserResponse, error) {
 	h.log.Debug(ctx, "gRPC register request", logger.F("email", req.Email))
 
-	user, err := h.userSvc.Register(ctx, &request.CreateUserRequest{
+	user, err := h.userSvc.Register(ctx, &dto.RegisterParams{
 		Name:     req.Name,
 		Email:    req.Email,
 		Password: req.Password,
@@ -58,19 +58,19 @@ func (h *UserGRPCHandler) GetByID(ctx context.Context, req *pb.GetByIDRequest) (
 func (h *UserGRPCHandler) Update(ctx context.Context, req *pb.UpdateRequest) (*pb.UserResponse, error) {
 	h.log.Debug(ctx, "gRPC update request", logger.F("id", req.Id))
 
-	updateReq := &request.UpdateUserRequest{}
+	updateParams := &dto.UpdateParams{}
 	if req.Name != nil {
-		updateReq.Name = req.Name
+		updateParams.Name = req.Name
 	}
 	if req.Email != nil {
-		updateReq.Email = req.Email
+		updateParams.Email = req.Email
 	}
 	if req.Status != nil {
 		status := domain.Status(req.Status.String())
-		updateReq.Status = &status
+		updateParams.Status = &status
 	}
 
-	user, err := h.userSvc.Update(ctx, int(req.Id), updateReq)
+	user, err := h.userSvc.Update(ctx, int(req.Id), updateParams)
 	if err != nil {
 		return nil, err
 	}
@@ -93,26 +93,26 @@ func (h *UserGRPCHandler) Delete(ctx context.Context, req *pb.DeleteRequest) (*p
 func (h *UserGRPCHandler) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
 	h.log.Debug(ctx, "gRPC list request", logger.F("page", req.Page))
 
-	query := &request.UserQuery{
+	queryParams := &dto.UserQueryParams{
 		Page:     int(req.Page),
 		PageSize: int(req.PageSize),
 	}
 	if req.Id != nil {
 		id := int(*req.Id)
-		query.ID = &id
+		queryParams.ID = &id
 	}
 	if req.Name != nil {
-		query.Name = req.Name
+		queryParams.Name = req.Name
 	}
 	if req.Email != nil {
-		query.Email = req.Email
+		queryParams.Email = req.Email
 	}
 	if req.Status != nil {
 		status := domain.Status(req.Status.String())
-		query.Status = &status
+		queryParams.Status = &status
 	}
 
-	users, total, err := h.userSvc.List(ctx, query)
+	users, total, err := h.userSvc.List(ctx, queryParams)
 	if err != nil {
 		return nil, err
 	}

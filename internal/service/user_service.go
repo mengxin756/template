@@ -2,12 +2,9 @@ package service
 
 import (
 	"context"
-	"time"
 
 	"example.com/classic/internal/domain"
-	"example.com/classic/internal/handler/request"
-	"example.com/classic/internal/job/asynq"
-	"example.com/classic/internal/taskqueue"
+	"example.com/classic/internal/service/dto"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 	"example.com/classic/pkg/tracer"
@@ -15,22 +12,21 @@ import (
 
 // UserService defines the user service interface
 type UserService interface {
-	Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error)
+	Register(ctx context.Context, params *dto.RegisterParams) (*domain.User, error)
 	GetByID(ctx context.Context, id int) (*domain.User, error)
-	Update(ctx context.Context, id int, req *request.UpdateUserRequest) (*domain.User, error)
+	Update(ctx context.Context, id int, params *dto.UpdateParams) (*domain.User, error)
 	Delete(ctx context.Context, id int) error
-	List(ctx context.Context, query *request.UserQuery) ([]*domain.User, int64, error)
+	List(ctx context.Context, query *dto.UserQueryParams) ([]*domain.User, int64, error)
 	ChangeStatus(ctx context.Context, id int, status domain.Status) error
 }
 
 // userService user service implementation (application service layer)
 type userService struct {
-	userRepo          domain.UserRepository
-	userFactory       domain.UserFactory
-	txManager         domain.TransactionManager
-	taskQueue         taskqueue.TaskQueue
-	eventPublisher    domain.EventPublisher
-	log               logger.Logger
+	userRepo       domain.UserRepository
+	userFactory    domain.UserFactory
+	txManager      domain.TransactionManager
+	eventPublisher domain.EventPublisher
+	log            logger.Logger
 }
 
 // NewUserService creates user service instance
@@ -38,7 +34,6 @@ func NewUserService(
 	userRepo domain.UserRepository,
 	userFactory domain.UserFactory,
 	txManager domain.TransactionManager,
-	taskQueue taskqueue.TaskQueue,
 	eventPublisher domain.EventPublisher,
 	log logger.Logger,
 ) UserService {
@@ -46,21 +41,20 @@ func NewUserService(
 		userRepo:       userRepo,
 		userFactory:    userFactory,
 		txManager:      txManager,
-		taskQueue:      taskQueue,
 		eventPublisher: eventPublisher,
 		log:            log,
 	}
 }
 
 // Register user registration
-func (s *userService) Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error) {
+func (s *userService) Register(ctx context.Context, params *dto.RegisterParams) (*domain.User, error) {
 	// 创建 Service 层 span
 	span, ctx := tracer.ServiceSpan(ctx, s.log, "Register")
 	defer span.End()
 
 	s.log.Info(ctx, "用户注册开始",
-		logger.String("email", req.Email),
-		logger.String("name", req.Name))
+		logger.String("email", params.Email),
+		logger.String("name", params.Name))
 
 	var user *domain.User
 
@@ -68,7 +62,7 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// 1. Use domain factory to create user aggregate (business logic in domain layer)
 		factorySpan, txCtx := tracer.StartSpan(txCtx, s.log, "domain:CreateNewUser")
-		aggregate, err := s.userFactory.CreateNewUser(req.Name, req.Email, req.Password)
+		aggregate, err := s.userFactory.CreateNewUser(params.Name, params.Email, params.Password)
 		if err != nil {
 			factorySpan.EndWithError(err)
 			s.log.Warn(ctx, "创建用户聚合失败", logger.Err(err))
@@ -78,7 +72,7 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 
 		// 2. Check email uniqueness (application service coordination)
 		checkSpan, txCtx := tracer.DBSpan(txCtx, s.log, "SELECT COUNT(*) FROM users WHERE email=?")
-		exists, err := s.userRepo.ExistsByEmail(txCtx, req.Email)
+		exists, err := s.userRepo.ExistsByEmail(txCtx, params.Email)
 		if err != nil {
 			checkSpan.EndWithError(err)
 			return err
@@ -86,7 +80,7 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 		checkSpan.End()
 
 		if exists {
-			s.log.Warn(ctx, "邮箱已存在", logger.String("email", req.Email))
+			s.log.Warn(ctx, "邮箱已存在", logger.String("email", params.Email))
 			return errors.ErrUserAlreadyExists
 		}
 
@@ -101,16 +95,15 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 		user = aggregate.User()
 
 		// 4. Publish domain events (decoupled business logic)
+		// Event handlers (e.g. welcome email) are triggered via EventPublisher
 		if aggregate.HasEvents() {
 			eventSpan, _ := tracer.StartSpan(txCtx, s.log, "event:PublishBatch")
 			if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
 				eventSpan.EndWithError(err)
 				s.log.Warn(ctx, "failed to publish domain events", logger.Err(err))
-				// Don't block main flow, just log warning
 			} else {
 				eventSpan.End()
 			}
-			// Clear published events
 			aggregate.ClearEvents()
 		}
 
@@ -120,11 +113,6 @@ func (s *userService) Register(ctx context.Context, req *request.CreateUserReque
 	if err != nil {
 		span.EndWithError(err)
 		return nil, err
-	}
-
-	// 5. Send welcome email task (application service coordination) - outside transaction
-	if s.taskQueue != nil {
-		s.enqueueWelcomeEmail(ctx, user.ID(), user.Email().String(), user.Name().String())
 	}
 
 	s.log.Info(ctx, "用户注册完成",
@@ -154,15 +142,15 @@ func (s *userService) GetByID(ctx context.Context, id int) (*domain.User, error)
 }
 
 // Update updates user
-func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUserRequest) (*domain.User, error) {
+func (s *userService) Update(ctx context.Context, id int, params *dto.UpdateParams) (*domain.User, error) {
 	// 创建 Service 层 span
 	span, ctx := tracer.ServiceSpan(ctx, s.log, "Update")
 	defer span.End()
 
 	s.log.Info(ctx, "更新用户",
 		logger.Int("user_id", id),
-		logger.Bool("has_name", req.Name != nil),
-		logger.Bool("has_email", req.Email != nil))
+		logger.Bool("has_name", params.Name != nil),
+		logger.Bool("has_email", params.Email != nil))
 
 	// 1. 获取聚合根
 	aggregate, err := s.userRepo.GetAggregateByID(ctx, id)
@@ -171,12 +159,12 @@ func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUse
 	}
 
 	// 2. 更新资料（业务逻辑在领域对象中）
-	if req.Name != nil || req.Email != nil {
+	if params.Name != nil || params.Email != nil {
 		var name domain.Name
 		var email domain.Email
 
-		if req.Name != nil {
-			nameVO, err := domain.NewName(*req.Name)
+		if params.Name != nil {
+			nameVO, err := domain.NewName(*params.Name)
 			if err != nil {
 				return nil, errors.New(errors.ErrCodeInvalidParam, err.Error())
 			}
@@ -185,8 +173,8 @@ func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUse
 			name = aggregate.User().Name()
 		}
 
-		if req.Email != nil {
-			emailVO, err := domain.NewEmail(*req.Email)
+		if params.Email != nil {
+			emailVO, err := domain.NewEmail(*params.Email)
 			if err != nil {
 				return nil, errors.New(errors.ErrCodeInvalidParam, err.Error())
 			}
@@ -210,8 +198,8 @@ func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUse
 	}
 
 	// 3. 更新状态（如果提供）
-	if req.Status != nil {
-		if err := aggregate.ChangeStatus(*req.Status); err != nil {
+	if params.Status != nil {
+		if err := aggregate.ChangeStatus(*params.Status); err != nil {
 			return nil, errors.New(errors.ErrCodeInvalidParam, err.Error())
 		}
 	}
@@ -219,6 +207,14 @@ func (s *userService) Update(ctx context.Context, id int, req *request.UpdateUse
 	// 4. 持久化
 	if err := s.userRepo.Save(ctx, aggregate); err != nil {
 		return nil, err
+	}
+
+	// 5. 发布领域事件
+	if aggregate.HasEvents() {
+		if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
+			s.log.Warn(ctx, "failed to publish domain events", logger.Err(err))
+		}
+		aggregate.ClearEvents()
 	}
 
 	user := aggregate.User()
@@ -257,7 +253,7 @@ func (s *userService) Delete(ctx context.Context, id int) error {
 }
 
 // List queries user list
-func (s *userService) List(ctx context.Context, query *request.UserQuery) ([]*domain.User, int64, error) {
+func (s *userService) List(ctx context.Context, query *dto.UserQueryParams) ([]*domain.User, int64, error) {
 	// 创建 Service 层 span
 	span, ctx := tracer.ServiceSpan(ctx, s.log, "List")
 	defer span.End()
@@ -312,8 +308,6 @@ func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.St
 		return err
 	}
 
-	oldStatus := aggregate.User().Status()
-
 	// 2. 改变状态（业务逻辑在领域对象中）
 	if err := aggregate.ChangeStatus(status); err != nil {
 		return errors.New(errors.ErrCodeInvalidParam, err.Error())
@@ -325,23 +319,12 @@ func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.St
 	}
 
 	// 4. 发布领域事件（解耦业务逻辑）
+	// Event handlers (e.g. status change notification) are triggered via EventPublisher
 	if aggregate.HasEvents() {
 		if err := s.eventPublisher.PublishBatch(aggregate.Events()); err != nil {
 			s.log.Warn(ctx, "failed to publish domain events", logger.F("error", err))
-			// 不阻塞主流程，只记录警告
 		}
-		// 清除已发布的事件
 		aggregate.ClearEvents()
-	}
-
-	// 5. 发送状态变更通知任务（应用服务协调）
-	if s.taskQueue != nil && oldStatus != status {
-		s.enqueueStatusChangeNotification(ctx,
-			aggregate.User().ID(),
-			aggregate.User().Email().String(),
-			aggregate.User().Name().String(),
-			oldStatus.String(),
-			status.String())
 	}
 
 	s.log.Info(ctx, "user status changed successfully",
@@ -351,41 +334,11 @@ func (s *userService) ChangeStatus(ctx context.Context, id int, status domain.St
 }
 
 // normalizeQuery normalizes query parameters
-func (s *userService) normalizeQuery(query *request.UserQuery) {
+func (s *userService) normalizeQuery(query *dto.UserQueryParams) {
 	if query.Page < 1 {
 		query.Page = 1
 	}
 	if query.PageSize < 1 || query.PageSize > 100 {
 		query.PageSize = 20
-	}
-}
-
-// enqueueWelcomeEmail 入队欢迎邮件任务
-func (s *userService) enqueueWelcomeEmail(ctx context.Context, userID int, email, name string) {
-	task := asynq.NewWelcomeEmailTaskV2(userID, email, name)
-	const delaySeconds = 10
-	if _, err := s.taskQueue.EnqueueIn(ctx, task, time.Duration(delaySeconds)*time.Second); err != nil {
-		s.log.Warn(ctx, "failed to enqueue welcome email task",
-			logger.Err(err),
-			logger.Int("user_id", userID))
-	} else {
-		s.log.Debug(ctx, "welcome email task enqueued",
-			logger.Int("user_id", userID),
-			logger.String("email", email))
-	}
-}
-
-// enqueueStatusChangeNotification 入队状态变更通知任务
-func (s *userService) enqueueStatusChangeNotification(ctx context.Context, userID int, email, name, oldStatus, newStatus string) {
-	task := asynq.NewStatusChangeNotificationTaskV2(userID, email, name, oldStatus, newStatus, "system")
-	if _, err := s.taskQueue.Enqueue(ctx, task); err != nil {
-		s.log.Warn(ctx, "failed to enqueue status change notification task",
-			logger.Err(err),
-			logger.Int("user_id", userID))
-	} else {
-		s.log.Debug(ctx, "status change notification task enqueued",
-			logger.Int("user_id", userID),
-			logger.String("old_status", oldStatus),
-			logger.String("new_status", newStatus))
 	}
 }

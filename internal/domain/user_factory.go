@@ -2,8 +2,6 @@ package domain
 
 import (
 	"fmt"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 // userFactory 用户工厂实现
@@ -54,34 +52,4 @@ func (f *userFactory) CreateNewUser(name, email, password string) (*UserAggregat
 	}
 
 	return aggregate, nil
-}
-
-// bcryptPasswordHasher bcrypt密码哈希器实现
-type bcryptPasswordHasher struct {
-	cost int
-}
-
-// NewBcryptPasswordHasher 创建bcrypt密码哈希器
-func NewBcryptPasswordHasher() PasswordHasher {
-	return &bcryptPasswordHasher{
-		cost: bcrypt.DefaultCost,
-	}
-}
-
-// Hash 哈希密码
-func (h *bcryptPasswordHasher) Hash(password string) (string, error) {
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), h.cost)
-	if err != nil {
-		return "", fmt.Errorf("bcrypt hash failed: %w", err)
-	}
-	return string(hashedBytes), nil
-}
-
-// Verify 验证密码
-func (h *bcryptPasswordHasher) Verify(hashedPassword, password string) error {
-	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
-	if err != nil {
-		return fmt.Errorf("password verification failed: %w", err)
-	}
-	return nil
 }

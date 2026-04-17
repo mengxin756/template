@@ -102,12 +102,12 @@ func (a *UserAggregate) ChangePassword(hashedPassword HashedPassword) error {
 
 // Deactivate 停用用户
 func (a *UserAggregate) Deactivate() error {
-	return a.user.ChangeStatus(StatusInactive)
+	return a.ChangeStatus(StatusInactive)
 }
 
 // Ban 封禁用户
 func (a *UserAggregate) Ban() error {
-	return a.user.ChangeStatus(StatusBanned)
+	return a.ChangeStatus(StatusBanned)
 }
 
 // Activate 激活用户
@@ -116,7 +116,7 @@ func (a *UserAggregate) Activate() error {
 	if a.user.IsBanned() {
 		return fmt.Errorf("cannot activate a banned user")
 	}
-	return a.user.ChangeStatus(StatusActive)
+	return a.ChangeStatus(StatusActive)
 }
 
 // CanBeDeleted 检查是否可以删除

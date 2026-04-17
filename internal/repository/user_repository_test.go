@@ -32,7 +32,7 @@ func TestUserRepository_DomainLogic(t *testing.T) {
 	// 测试用户查询构建
 	t.Run("用户查询构建", func(t *testing.T) {
 		status := domain.StatusActive
-		query := &domain.UserQuery{
+		query := &domain.UserListParams{
 			Page:     1,
 			PageSize: 10,
 			Status:   &status,

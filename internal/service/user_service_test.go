@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"example.com/classic/internal/domain"
-	"example.com/classic/internal/handler/request"
+	"example.com/classic/internal/service/dto"
 	"example.com/classic/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -88,8 +88,10 @@ type MockTransactionManager struct {
 }
 
 func (m *MockTransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	args := m.Called(ctx, fn)
-	return args.Error(0)
+	// Execute the callback directly for testing, then record the call
+	err := fn(ctx)
+	m.Called(ctx, fn)
+	return err
 }
 
 func (m *MockTransactionManager) WithTransactionResult(ctx context.Context, fn func(ctx context.Context) (interface{}, error)) (interface{}, error) {
@@ -104,13 +106,13 @@ func TestUserService_Register(t *testing.T) {
 	// Test cases
 	tests := []struct {
 		name    string
-		req     *request.CreateUserRequest
+		req     *dto.RegisterParams
 		setup   func(*MockUserRepository, *MockUserFactory)
 		wantErr bool
 	}{
 		{
 			name: "successfully register user",
-			req: &request.CreateUserRequest{
+			req: &dto.RegisterParams{
 				Name:     "Test User",
 				Email:    "test@example.com",
 				Password: "password123",
@@ -124,7 +126,7 @@ func TestUserService_Register(t *testing.T) {
 		},
 		{
 			name: "email already exists",
-			req: &request.CreateUserRequest{
+			req: &dto.RegisterParams{
 				Name:     "Test User",
 				Email:    "existing@example.com",
 				Password: "password123",
@@ -145,13 +147,13 @@ func TestUserService_Register(t *testing.T) {
 			mockTxManager := new(MockTransactionManager)
 			log := logger.New("test", "debug", true)
 
-			// Create service instance (pass nil as task queue to avoid complexity)
-			svc := NewUserService(mockRepo, mockFactory, mockTxManager, nil, nil, log)
+			// Create service instance
+			mockEventPub := new(MockEventPublisher)
+			mockEventPub.On("PublishBatch", mock.Anything).Return(nil)
+			svc := NewUserService(mockRepo, mockFactory, mockTxManager, mockEventPub, log)
 
-			// Setup transaction manager mock - execute the function directly
-			mockTxManager.On("WithTransaction", mock.Anything, mock.Anything).Return(func(ctx context.Context, fn func(ctx context.Context) error) error {
-				return fn(ctx)
-			}).Once()
+			// Setup transaction manager mock - just record the call (callback is executed directly)
+			mockTxManager.On("WithTransaction", mock.Anything, mock.Anything).Once()
 
 			// Setup mock behavior
 			tt.setup(mockRepo, mockFactory)
@@ -178,8 +180,9 @@ func TestUserService_Register(t *testing.T) {
 func TestUserService_GetByID(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	mockTxManager := new(MockTransactionManager)
+	mockEventPub := new(MockEventPublisher)
 	log := logger.New("test", "debug", true)
-	svc := NewUserService(mockRepo, nil, mockTxManager, nil, nil, log)
+	svc := NewUserService(mockRepo, nil, mockTxManager, mockEventPub, log)
 
 	// Setup mock behavior
 	mockRepo.On("GetByID", mock.Anything, 1).Return(createTestUser(1, "Test User", "test@example.com"), nil)
@@ -197,21 +200,23 @@ func TestUserService_GetByID(t *testing.T) {
 func TestUserService_Update(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	mockTxManager := new(MockTransactionManager)
+	mockEventPub := new(MockEventPublisher)
 	log := logger.New("test", "debug", true)
-	svc := NewUserService(mockRepo, nil, mockTxManager, nil, nil, log)
+	svc := NewUserService(mockRepo, nil, mockTxManager, mockEventPub, log)
 
 	// Update request
 	newName := "New Name"
-	updateReq := &request.UpdateUserRequest{
+	updateParams := &dto.UpdateParams{
 		Name: &newName,
 	}
 
 	// Setup mock behavior
 	mockRepo.On("GetAggregateByID", mock.Anything, 1).Return(createTestAggregate(1, "Old Name", "old@example.com"), nil)
 	mockRepo.On("Save", mock.Anything, mock.AnythingOfType("*domain.UserAggregate")).Return(nil)
+	mockEventPub.On("PublishBatch", mock.Anything).Return(nil)
 
 	// Execute test
-	user, err := svc.Update(context.Background(), 1, updateReq)
+	user, err := svc.Update(context.Background(), 1, updateParams)
 
 	// Verify results
 	assert.NoError(t, err)
@@ -223,6 +228,21 @@ func TestUserService_Update(t *testing.T) {
 // Helper functions
 func stringPtr(s string) *string {
 	return &s
+}
+
+// MockEventPublisher mock event publisher
+type MockEventPublisher struct {
+	mock.Mock
+}
+
+func (m *MockEventPublisher) Publish(event domain.DomainEvent) error {
+	args := m.Called(event)
+	return args.Error(0)
+}
+
+func (m *MockEventPublisher) PublishBatch(events []domain.DomainEvent) error {
+	args := m.Called(events)
+	return args.Error(0)
 }
 
 // MockUserFactory mock user factory

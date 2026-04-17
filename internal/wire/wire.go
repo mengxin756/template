@@ -16,6 +16,7 @@ import (
 	"example.com/classic/internal/data/store/sqlstore"
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler"
+	"example.com/classic/internal/infrastructure/hashing"
 	"example.com/classic/internal/infrastructure/messaging"
 	"example.com/classic/internal/job/asynq"
 	"example.com/classic/internal/repository"
@@ -130,7 +131,7 @@ func provideLogger(cfg *config.Config) logger.Logger {
 
 // providePasswordHasher provides password hasher
 func providePasswordHasher() domain.PasswordHasher {
-	return domain.NewBcryptPasswordHasher()
+	return hashing.NewBcryptPasswordHasher()
 }
 
 // provideUserFactory provides user factory

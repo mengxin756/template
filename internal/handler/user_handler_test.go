@@ -12,6 +12,7 @@ import (
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler/request"
 	"example.com/classic/internal/service"
+	"example.com/classic/internal/service/dto"
 	"example.com/classic/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -23,8 +24,8 @@ type MockUserService struct {
 	mock.Mock
 }
 
-func (m *MockUserService) Register(ctx context.Context, req *request.CreateUserRequest) (*domain.User, error) {
-	args := m.Called(ctx, req)
+func (m *MockUserService) Register(ctx context.Context, params *dto.RegisterParams) (*domain.User, error) {
+	args := m.Called(ctx, params)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -39,8 +40,8 @@ func (m *MockUserService) GetByID(ctx context.Context, id int) (*domain.User, er
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserService) Update(ctx context.Context, id int, req *request.UpdateUserRequest) (*domain.User, error) {
-	args := m.Called(ctx, id, req)
+func (m *MockUserService) Update(ctx context.Context, id int, params *dto.UpdateParams) (*domain.User, error) {
+	args := m.Called(ctx, id, params)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -52,7 +53,7 @@ func (m *MockUserService) Delete(ctx context.Context, id int) error {
 	return args.Error(0)
 }
 
-func (m *MockUserService) List(ctx context.Context, query *request.UserQuery) ([]*domain.User, int64, error) {
+func (m *MockUserService) List(ctx context.Context, query *dto.UserQueryParams) ([]*domain.User, int64, error) {
 	args := m.Called(ctx, query)
 	if args.Get(0) == nil {
 		return nil, args.Get(1).(int64), args.Error(2)
@@ -100,7 +101,7 @@ func TestUserHandler_Register(t *testing.T) {
 
 	// Setup mock behavior
 	mockUser := createTestUser(1, "Test User", "test@example.com")
-	mockService.On("Register", mock.Anything, mock.AnythingOfType("*request.CreateUserRequest")).Return(mockUser, nil)
+	mockService.On("Register", mock.Anything, mock.AnythingOfType("*dto.RegisterParams")).Return(mockUser, nil)
 
 	// Execute handler
 	handler.Register(c)
@@ -226,7 +227,7 @@ func TestUserHandler_List(t *testing.T) {
 		createTestUser(1, "User1", "user1@example.com"),
 		createTestUser(2, "User2", "user2@example.com"),
 	}
-	mockService.On("List", mock.Anything, mock.AnythingOfType("*request.UserQuery")).Return(mockUsers, int64(2), nil)
+	mockService.On("List", mock.Anything, mock.AnythingOfType("*dto.UserQueryParams")).Return(mockUsers, int64(2), nil)
 
 	// Execute handler
 	handler.List(c)

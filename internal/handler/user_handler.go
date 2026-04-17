@@ -6,6 +6,7 @@ import (
 	"example.com/classic/internal/domain"
 	"example.com/classic/internal/handler/request"
 	"example.com/classic/internal/service"
+	"example.com/classic/internal/service/dto"
 	"example.com/classic/pkg/errors"
 	"example.com/classic/pkg/logger"
 	"example.com/classic/pkg/response"
@@ -59,7 +60,11 @@ func (h *UserHandler) Register(c *gin.Context) {
 		logger.String("email", req.Email),
 		logger.String("name", req.Name))
 
-	user, err := h.userService.Register(ctx, &req)
+	user, err := h.userService.Register(ctx, &dto.RegisterParams{
+		Name:     req.Name,
+		Email:    req.Email,
+		Password: req.Password,
+	})
 	if err != nil {
 		span.EndWithError(err)
 		h.handleError(c, err)
@@ -152,7 +157,11 @@ func (h *UserHandler) Update(c *gin.Context) {
 		logger.Bool("has_email", req.Email != nil),
 		logger.Bool("has_status", req.Status != nil))
 
-	user, err := h.userService.Update(ctx, id, &req)
+	user, err := h.userService.Update(ctx, id, &dto.UpdateParams{
+		Name:   req.Name,
+		Email:  req.Email,
+		Status: req.Status,
+	})
 	if err != nil {
 		span.EndWithError(err)
 		h.handleError(c, err)
@@ -263,7 +272,14 @@ func (h *UserHandler) List(c *gin.Context) {
 		logger.Bool("has_name_filter", query.Name != nil),
 		logger.Bool("has_email_filter", query.Email != nil))
 
-	users, total, err := h.userService.List(ctx, query)
+	users, total, err := h.userService.List(ctx, &dto.UserQueryParams{
+		ID:       query.ID,
+		Name:     query.Name,
+		Email:    query.Email,
+		Status:   query.Status,
+		Page:     query.Page,
+		PageSize: query.PageSize,
+	})
 	if err != nil {
 		span.EndWithError(err)
 		h.handleError(c, err)
