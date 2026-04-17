@@ -1,10 +1,27 @@
-# Observability Stack for Log Visualization
+# Observability Stack (LGTMP: Loki + Grafana + Tempo + Mimir/Prometheus)
 # Usage: docker-compose up -d
 # Access: http://localhost:3000 (Grafana, admin/admin)
 
 version: "3.8"
 
 services:
+  # ============== Metrics ==============
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=48h'
+      - '--web.enable-remote-write-receiver'
+    networks:
+      - observability
+
   # ============== Log Aggregation ==============
   loki:
     image: grafana/loki:2.9.0
@@ -51,6 +68,7 @@ services:
     depends_on:
       - loki
       - tempo
+      - prometheus
     networks:
       - observability
 
@@ -71,6 +89,7 @@ volumes:
   loki-data:
   tempo-data:
   grafana-data:
+  prometheus-data:
 
 networks:
   observability:

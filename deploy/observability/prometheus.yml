@@ -1,0 +1,22 @@
+# Prometheus Configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'local'
+    replica: '1'
+
+# Remote write endpoint for Tempo metrics generator
+remote_write:
+  - url: http://localhost:9090/api/v1/write
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Application metrics (add your app endpoint here)
+  # - job_name: 'app'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:8080']

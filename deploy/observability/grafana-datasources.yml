@@ -35,8 +35,28 @@ datasources:
         filterByTraceID: true
         filterBySpanID: true
       serviceMap:
-        datasourceUid: 'loki'
+        datasourceUid: 'prometheus'
       search:
         hide: false
       nodeGraph:
         enabled: true
+      tracesToMetrics:
+        datasourceUid: 'prometheus'
+        tags: ['service']
+        queries:
+          - name: 'Request Rate'
+            query: 'sum(rate(http_server_request_duration_seconds_count{service="$__tags.service"}[5m]))'
+          - name: 'Error Rate'
+            query: 'sum(rate(http_server_request_duration_seconds_count{service="$__tags.service",status_code=~"5.."}[5m]))'
+
+  # Prometheus - Metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: false
+    editable: false
+    jsonData:
+      timeInterval: '15s'
+      queryTimeout: '60s'
